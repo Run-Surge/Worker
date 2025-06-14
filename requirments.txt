@@ -1,0 +1,4 @@
+grpcio==1.72.1
+grpcio-tools==1.72.1
+protobuf==6.31.1
+psutil==7.0.0

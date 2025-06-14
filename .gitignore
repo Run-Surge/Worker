@@ -1,3 +1,9 @@
+#gRPC generated files
+generated/
+
+# Temporary files
+temp/
+temp*/
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

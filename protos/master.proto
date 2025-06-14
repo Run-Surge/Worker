@@ -1,0 +1,61 @@
+syntax = "proto3";
+package master_api;
+
+import "google/protobuf/empty.proto";
+import "common.proto"; // Import your common messages
+
+service MasterService {
+  // Get metadata about a Python file before streaming
+  rpc GetPythonFileMetadata(project_common.FileIdentifier) returns (project_common.DataMetadata);
+  
+  // Stream Python file in chunks after getting metadata
+  rpc StreamPythonFile(project_common.FileIdentifier) returns (stream project_common.DataChunk);
+  
+  // Get metadata about data before streaming
+  rpc GetDataMetadata(project_common.DataIdentifier) returns (project_common.DataMetadata);
+  
+  // Stream data in chunks after getting metadata
+  rpc StreamData(project_common.DataIdentifier) returns (stream project_common.DataChunk);
+  
+  rpc UpdateDataStatus(DataStatusUpdateRequest) returns (project_common.StatusResponse);
+  rpc GetDataLocationAndStatus(project_common.DataIdentifier) returns (DataLocationInfoResponse);
+
+  rpc RegisterWorker(WorkerRegistrationRequest) returns (WorkerRegistrationResponse);
+  rpc UnregisterWorker(UnregisterWorkerRequest) returns (project_common.StatusResponse);
+}
+
+message UnregisterWorkerRequest {
+  string worker_id = 1;
+}
+
+
+message WorkerRegistrationRequest {
+  string worker_address = 1;
+  int32 memory_mb = 2; // memory in MB
+  int32 cpu_count = 3; // number of CPUs
+  int32 disk_space_mb = 4; // disk space in MB
+}
+
+message WorkerRegistrationResponse {
+  string worker_id = 1;
+  project_common.StatusResponse status = 2;
+}
+
+message DataStatusUpdateRequest {
+    project_common.DataIdentifier data_id = 1;
+    DataStatusCode status = 2;
+}
+
+enum DataStatusCode { 
+  DATA_STATUS_UNSPECIFIED = 0;
+  DATA_STATUS_AVAILABLE = 1;
+  DATA_STATUS_PROCESSING = 2;
+  DATA_STATUS_NOT_FOUND = 3;
+  DATA_STATUS_ERROR = 4;
+}
+
+message DataLocationInfoResponse {
+    DataStatusCode status = 1;
+    string node_address = 2;
+    string message = 3;
+}

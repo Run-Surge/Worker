@@ -1,0 +1,53 @@
+syntax = "proto3";
+
+package worker_api;
+
+import "common.proto";
+import "google/protobuf/empty.proto";
+
+
+// --- Enums specific to Worker status ---
+
+enum WorkerState {
+  WORKER_STATE_UNSPECIFIED = 0; // Default, should not be used
+  WORKER_STATE_IDLE = 1;        // Worker is ready to accept jobs
+  WORKER_STATE_BUSY = 2;        // Worker is currently processing a job
+  WORKER_STATE_INITIALIZING = 3;// Worker is starting up
+  WORKER_STATE_SHUTTING_DOWN = 4;// Worker is in the process of shutting down
+}
+
+
+// --- Messages specific to WorkerService RPCs ---
+
+// Detailed status of a Worker, returned by GetWorkerStatus.
+message WorkerStatus {
+  WorkerState state = 1;
+  string current_job_id = 2; // ID of the job currently being processed, if any
+  // Potentially add resource info:
+  // float cpu_load_percent = 5;
+  // int64 memory_free_bytes = 6;
+  // int64 disk_free_bytes = 7;
+}
+
+// Details of a job assigned to a Worker.
+message JobAssignment {
+  string job_id = 1;
+  project_common.FileIdentifier python_file = 2; // Identifier for the .py file (uses common type)
+  project_common.DataIdentifier required_data_ids = 3; // single data file
+  project_common.DataIdentifier produced_data_id = 4;      // Data this job will produce
+}
+
+
+service WorkerService {
+  rpc GetWorkerStatus(google.protobuf.Empty) returns (WorkerStatus);
+
+  rpc AssignJob(JobAssignment) returns (project_common.StatusResponse);
+
+  rpc GetDataMetadata(project_common.DataIdentifier) returns (project_common.DataMetadata);
+
+  rpc StreamData(project_common.DataIdentifier) returns (stream project_common.DataChunk);
+
+  rpc DeleteCachedData(project_common.DataIdentifier) returns (project_common.StatusResponse);
+
+  // rpc ShutdownWorker(google.protobuf.Empty) returns (project_common.StatusResponse);
+}
