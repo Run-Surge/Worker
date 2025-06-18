@@ -9,7 +9,8 @@ pip install grpcio-tools grpcio
 
 ### Generate Protocol Buffer Files
 ```bash
-./protos/generate_proto.sh
+cd protos_def
+./generate_proto.sh
 ```
 
 ## Running the System

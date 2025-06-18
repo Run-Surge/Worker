@@ -6,7 +6,7 @@ from typing import Optional
 
 
 @dataclass
-class WorkerConfig:
+class Config:
     """Configuration settings for the worker node."""
     
     # Worker identification
@@ -32,11 +32,12 @@ class WorkerConfig:
     log_level: str = "INFO"
     
     # Directories
-    temp_dir: str = "./temp/worker_data"
-    cache_dir: str = "./temp/worker_cache"
+    temp_dir: str = os.path.join('.', 'temp', 'worker_data')
+    cache_dir: str = os.path.join('.', 'temp', 'worker_cache')
+    shared_dir: str = os.path.join('.', 'worker_app', 'vm', 'shared')
     
     @classmethod
-    def from_env(cls) -> 'WorkerConfig':
+    def from_env(cls) -> 'Config':
         """Create configuration from environment variables."""
         return cls(
             worker_id=os.getenv('WORKER_ID', cls.worker_id),
@@ -52,4 +53,4 @@ class WorkerConfig:
     def ensure_directories(self):
         """Create necessary directories if they don't exist."""
         os.makedirs(self.temp_dir, exist_ok=True)
-        os.makedirs(self.cache_dir, exist_ok=True) 
+        os.makedirs(self.cache_dir, exist_ok=True)

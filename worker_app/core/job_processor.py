@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 from dataclasses import dataclass
 from enum import Enum
 
-from ..config import WorkerConfig
+from ..config import Config
 from .cache_manager import CacheManager
 from ..utils.logging_setup import setup_logging
 
@@ -49,7 +49,7 @@ class JobProcessor:
     TODO: Implement actual Python code execution, file fetching, and result handling.
     """
     
-    def __init__(self, config: WorkerConfig, data_cache: CacheManager, worker_id: str):
+    def __init__(self, config: Config, data_cache: CacheManager, worker_id: str):
         self.config = config
         self.data_cache = data_cache
         self.worker_id = worker_id

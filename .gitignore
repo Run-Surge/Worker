@@ -1,7 +1,12 @@
+# VM files
+shared/
+RunSugre-VM.qcow2
+
 #gRPC generated files
-generated/
+protos/
 
 # Temporary files
+*dummy*
 temp/
 temp*/
 # Byte-compiled / optimized / DLL files

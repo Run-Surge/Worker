@@ -38,10 +38,19 @@ message JobAssignment {
 }
 
 
+message DataUploadRequest {
+  oneof payload {
+    project_common.DataInfo data_info = 2;
+    project_common.DataChunk chunk = 1;
+  }
+}
+
 service WorkerService {
   rpc GetWorkerStatus(google.protobuf.Empty) returns (WorkerStatus);
 
   rpc AssignJob(JobAssignment) returns (project_common.StatusResponse);
+
+  rpc ReceiveData(stream DataUploadRequest) returns (project_common.StatusResponse);
 
   rpc GetDataMetadata(project_common.DataIdentifier) returns (project_common.DataMetadata);
 

@@ -12,10 +12,12 @@ if ! python -m grpc_tools.protoc --help &> /dev/null; then
     exit 1
 fi
 
+output_folder="../protos"
+
 echo "✓ grpc_tools found and working"
 
 # Create output directory if it doesn't exist
-mkdir -p ../generated
+mkdir -p $output_folder
 
 # Proto files to generate
 PROTO_FILES=("./common.proto" "./worker.proto" "./master.proto")
@@ -32,7 +34,7 @@ for proto_file in "${PROTO_FILES[@]}"; do
         echo "📝 Processing $proto_file..."
         
         # Generate Python bindings using grpc_tools
-        if python -m grpc_tools.protoc -I. --python_out=../generated --grpc_python_out=../generated "$proto_file"; then
+        if python -m grpc_tools.protoc -I. --python_out=$output_folder --grpc_python_out=$output_folder "$proto_file"; then
             echo "✓ Successfully generated $proto_file"
             ((success_count++))
         else
@@ -44,17 +46,17 @@ for proto_file in "${PROTO_FILES[@]}"; do
 done
 
 # Create __init__.py file to make it a proper Python package
-echo '"""Generated Protocol Buffer files."""' > generated/__init__.py
+echo '"""Generated Protocol Buffer files."""' > $output_folder/__init__.py
 
 echo ""
 echo "✅ Generation complete!"
 echo "📊 Successfully generated $success_count/$total_files files"
 
 # List generated files
-if [ "$(ls -A generated/*.py 2>/dev/null)" ]; then
+if [ "$(ls -A $output_folder/*.py 2>/dev/null)" ]; then
     echo ""
     echo "📋 Generated files:"
-    for file in generated/*.py; do
+    for file in $output_folder/*.py; do
         if [ -f "$file" ]; then
             echo "   - $(basename "$file")"
         fi
@@ -62,4 +64,4 @@ if [ "$(ls -A generated/*.py 2>/dev/null)" ]; then
 fi
 
 echo ""
-echo "📍 Files location: $(pwd)/generated/" 
+echo "📍 Files location: $(pwd)/$output_folder/" 

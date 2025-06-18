@@ -5,20 +5,20 @@ import os
 import traceback
 import time
 
-# Add the protos/generated directory to the path to import generated protobuf files
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'generated'))
 
 import grpc
 from google.protobuf.empty_pb2 import Empty
 
 # Import generated protobuf modules
-from generated import worker_pb2
-from generated import worker_pb2_grpc
-from generated import common_pb2
+from protos import worker_pb2
+from protos import worker_pb2_grpc
+from protos import common_pb2
 
 from ..core.worker_manager import WorkerManager, WorkerState
 from ..utils.logging_setup import setup_logging
 from ..utils.util import format_bytes
+from ..core.data_manager import DataManager
+from ..config import Config
 
 class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
     """
@@ -28,11 +28,11 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
     business logic to the WorkerManager instance.
     """
     
-    def __init__(self, worker_manager: WorkerManager):
+    def __init__(self, worker_manager: WorkerManager, config: Config):
         self.worker_manager = worker_manager
         self.worker_id = worker_manager.worker_id
         self.logger = setup_logging(self.worker_id)
-        
+        self.config = config
         self.logger.info(f"WorkerServicer initialized for worker {self.worker_id}")
     
     def GetWorkerStatus(self, request: Empty, context: grpc.ServicerContext) -> worker_pb2.WorkerStatus:
@@ -287,3 +287,43 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
                 success=False,
                 message=f"Internal error: {str(e)}"
             ) 
+        
+
+    def ReceiveData(self, request_iterator, context: grpc.ServicerContext) -> common_pb2.StatusResponse:
+        """
+        Upload data to the worker.
+        
+        Args:
+            request: DataUploadRequest with data info and chunk
+            context: gRPC context
+            
+        Returns:
+            StatusResponse indicating success or failure
+        """
+        try:
+            self.logger.debug(f"ReceiveData called")
+
+            data_info = next(request_iterator).data_info
+            self.logger.debug(f"UploadData called for data {data_info.data_id}")
+            
+            # Delegate to worker manager
+            success, file_path = DataManager.recieveData(request_iterator, data_info, self.config.shared_dir)
+            #TODO: maybe notify the task or something.
+
+            # Create status response
+            response = common_pb2.StatusResponse(
+                success=success,
+                message='Successfully received data' if success else 'Failed to receive data'
+            )
+            
+            return response
+            
+        except Exception as e:
+            traceback.print_exc()
+            self.logger.error(f"Error in UploadData: {e}")
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(f"Internal error: {str(e)}")
+            return common_pb2.StatusResponse(
+                success=False,
+                message=f"Internal error: {str(e)}"
+            )

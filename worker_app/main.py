@@ -7,10 +7,11 @@ import time
 from concurrent import futures
 import grpc
 
-from .config import WorkerConfig
+from .config import Config
 from .core.worker_manager import WorkerManager
 from .grpc_services.worker_servicer import WorkerServicer
 from .utils.logging_setup import setup_logging
+# from .security.interceptor import AuthenticationServerInterceptor
 
 
 def parse_arguments():
@@ -77,10 +78,10 @@ def parse_arguments():
     return parser.parse_args()
 
 
-def create_config(args) -> WorkerConfig:
+def create_config(args) -> Config:
     """Create worker configuration from command-line arguments and environment."""
     # Start with environment-based config
-    config = WorkerConfig.from_env()
+    config = Config.from_env()
     
     # Override with command-line arguments
     if args.worker_id:
@@ -103,7 +104,9 @@ def create_config(args) -> WorkerConfig:
 def create_grpc_server(worker_servicer: WorkerServicer, port: int) -> grpc.Server:
     """Create and configure the gRPC server."""
     # Create server with thread pool
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
+    #TODO: add authentication interceptor
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10),
+                         interceptors=[])
     
     # Add servicer to server
     import worker_pb2_grpc
@@ -157,7 +160,7 @@ def main():
         
         # Create gRPC servicer
         logger.info("Creating gRPC servicer...")
-        worker_servicer = WorkerServicer(worker_manager)
+        worker_servicer = WorkerServicer(worker_manager, config)
         
         # Create and start gRPC server
         logger.info(f"Starting gRPC server on port {config.listen_port}...")

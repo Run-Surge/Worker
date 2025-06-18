@@ -8,7 +8,7 @@ import pickle
 import traceback
 from dataclasses import dataclass
 from typing import Dict, Any, Optional
-from ..config import WorkerConfig
+from ..config import Config
 from ..utils.logging_setup import setup_logging
 
 @dataclass
@@ -22,7 +22,7 @@ class CacheEntry:
 class CacheManager:
     """Manages local data caching for the worker node."""
     
-    def __init__(self, config: WorkerConfig):
+    def __init__(self, config: Config):
         """Initialize data cache with configuration."""
         self.config = config
         self.logger = setup_logging(config.worker_id, config.log_level)
@@ -60,7 +60,7 @@ class CacheManager:
                'test_50mb.txt',
                'test_100mb.txt',
                'test_250mb.txt',
-               'test_500mb.txt'
+            #    'test_500mb.txt'
             ]
             for file in dummy_files:
                 file_path = os.path.join(self.cache_dir, file)

@@ -5,7 +5,7 @@ import time
 from typing import Dict, Optional, Tuple, Any
 from enum import Enum
 
-from ..config import WorkerConfig
+from ..config import Config
 from .cache_manager import CacheManager
 from .job_processor import JobProcessor, JobContext, JobStatus
 from ..utils.logging_setup import setup_logging
@@ -28,7 +28,7 @@ class WorkerManager:
     Acts as the main coordinator between gRPC servicer and job processing.
     """
     
-    def __init__(self, config: WorkerConfig):
+    def __init__(self, config: Config):
         self.config = config
         self.worker_id = config.worker_id
         self.logger = setup_logging(self.worker_id)
