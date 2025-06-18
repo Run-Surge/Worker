@@ -4,7 +4,7 @@ import sys
 import os
 import traceback
 import time
-
+from typing import Generator
 
 import grpc
 from google.protobuf.empty_pb2 import Empty
@@ -13,6 +13,8 @@ from google.protobuf.empty_pb2 import Empty
 from protos import worker_pb2
 from protos import worker_pb2_grpc
 from protos import common_pb2
+
+from protos.worker_pb2 import TaskAssignment, DataUploadRequest
 
 from ..core.worker_manager import WorkerManager, WorkerState
 from ..utils.logging_setup import setup_logging
@@ -78,7 +80,7 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
             context.set_details(f"Internal error: {str(e)}")
             return worker_pb2.WorkerStatus()
     
-    def AssignTask(self, request: worker_pb2.TaskAssignment, context: grpc.ServicerContext) -> common_pb2.StatusResponse:
+    def AssignTask(self, request: TaskAssignment, context: grpc.ServicerContext) -> common_pb2.StatusResponse:
         """
         Assign a new task to the worker.
         
@@ -289,12 +291,14 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
             ) 
         
 
-    def ReceiveData(self, request_iterator, context: grpc.ServicerContext) -> common_pb2.StatusResponse:
+    def ReceiveData(self, request_iterator: Generator[DataUploadRequest, None, None], context: grpc.ServicerContext) -> common_pb2.StatusResponse:
         """
         Upload data to the worker.
         
         Args:
             request: DataUploadRequest with data info and chunk
+                - first one is data_info
+                - rest are chunks
             context: gRPC context
             
         Returns:

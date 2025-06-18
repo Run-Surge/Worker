@@ -34,7 +34,7 @@ for proto_file in "${PROTO_FILES[@]}"; do
         echo "📝 Processing $proto_file..."
         
         # Generate Python bindings using grpc_tools
-        if python -m grpc_tools.protoc -I. --python_out=$output_folder --grpc_python_out=$output_folder "$proto_file"; then
+        if python -m grpc_tools.protoc -I. --python_out=$output_folder --pyi_out=$output_folder --grpc_python_out=$output_folder "$proto_file"; then
             echo "✓ Successfully generated $proto_file"
             ((success_count++))
         else

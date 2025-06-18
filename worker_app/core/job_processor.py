@@ -5,6 +5,8 @@ from typing import Any, Dict, Optional
 from dataclasses import dataclass
 from enum import Enum
 
+from protos.worker_pb2 import TaskAssignment
+
 from ..config import Config
 from .cache_manager import CacheManager
 from ..utils.logging_setup import setup_logging
@@ -24,7 +26,7 @@ class TaskStatus(Enum):
 class TaskContext:
     """Context information for a running task."""
     task_id: str
-    assignment: Any  # TaskAssignment proto
+    assignment: TaskAssignment  # TaskAssignment proto
     status: TaskStatus
     thread: Optional[threading.Thread]
     start_time: float

@@ -59,6 +59,7 @@ class ResourcePool:
         Returns:
             True if resources were successfully allocated
         """
+        #TODO: make it dynamic or remove it
         with self.lock:
             if self.can_accept_task(cpu_cores, memory_mb):
                 self.allocated_cpu_cores += cpu_cores

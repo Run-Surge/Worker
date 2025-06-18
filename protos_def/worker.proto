@@ -31,10 +31,11 @@ message WorkerStatus {
 
 // Details of a job assigned to a Worker.
 message TaskAssignment {
-  string job_id = 1;
+  string task_id = 1;
   bytes python_file = 2; // Python file
   string python_file_name = 3; // Python file name
   string data_id = 4; // Data id
+  string job_id = 5; // Job id
 }
 
 
