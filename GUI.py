@@ -68,6 +68,11 @@ class ToolkitApp(ctk.CTk):
         self.password_entry = ctk.CTkEntry(self.login_frame, placeholder_text="Password", show="*", width=300, height=45)
         self.password_entry.pack(pady=8)
 
+        self.username_entry.bind("<Return>", lambda _: self.try_login())
+        self.password_entry.bind("<Return>", lambda _: self.try_login())
+
+
+
         self.login_error_label = ctk.CTkLabel(self.login_frame, text="", text_color="red", font=self.small_bold_font)
         self.login_error_label.pack(pady=(0, 3))
 
@@ -81,6 +86,23 @@ class ToolkitApp(ctk.CTk):
         resized_image = self.logo_image.resize((150, 150), Image.Resampling.LANCZOS)
         self.tk_image = ctk.CTkImage(light_image=resized_image, dark_image=resized_image, size=(150, 150))
         self.logo_label.configure(image=self.tk_image)
+    def shake_widget(self, widget):
+        original_x = widget.winfo_x()
+        original_y = widget.winfo_y()
+
+        def move(offsets, index=0):
+            if index < len(offsets):
+                widget.place(x=original_x + offsets[index], y=original_y)
+                self.after(30, lambda: move(offsets, index + 1))
+            else:
+                widget.place_forget()
+                widget.pack(pady=8)  # Restore original packing
+
+        # Switch to place to allow precise x movement
+        widget.pack_forget()
+        widget.place(x=original_x, y=original_y)
+        move([-5, 5, -4, 4, -3, 3, -2, 2, 0])
+
 
     def try_login(self):
         username = self.username_entry.get()
