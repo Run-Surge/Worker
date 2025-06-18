@@ -8,7 +8,7 @@ import random
 import colorsys
 import os
 import ctypes
-
+import webbrowser
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -16,23 +16,28 @@ ctk.set_default_color_theme("blue")
 
 class ToolkitApp(ctk.CTk):
     def __init__(self):
+        if os.name == 'nt':
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(u"mycompany.myproduct.subproduct.version")
+
         super().__init__()
-        self.update_idletasks()
+
         self.title("Run Surge")
         self.geometry("400x550")
         self.resizable(False, False)
-        self.iconbitmap("assets/images/logo.ico")
-  
+        self.iconbitmap(os.path.abspath("assets/images/logo.ico"))
+
         self.bold_font = ctk.CTkFont(size=14, weight="bold")
         self.small_bold_font = ctk.CTkFont(size=12, weight="bold")
         self.italic_font = ctk.CTkFont(size=11, weight="bold", slant="italic")
+
         width = 400
         height = 550
         x = (self.winfo_screenwidth() // 2) - (width // 2)
         y = (self.winfo_screenheight() // 2) - (height // 2)
         self.geometry(f"{width}x{height}+{x}+{y}")
 
-        # Logo with white circular background
+        self.logined = False
+
         original_logo = Image.open("assets/images/logo.png").convert("RGBA")
         size = int(max(original_logo.size) * 1.3)
         circle_bg = Image.new("RGBA", (size, size), (255, 255, 255, 0))
@@ -44,31 +49,76 @@ class ToolkitApp(ctk.CTk):
         circle_bg.paste(original_logo, offset, original_logo)
         self.logo_image = circle_bg
 
+        if not self.logined:
+            self.show_login_page()
+        else:
+            self.setup_main_ui()
+
+    def show_login_page(self):
+        self.login_frame = ctk.CTkFrame(self)
+        self.login_frame.pack(expand=True)
+
+        self.logo_label = ctk.CTkLabel(self.login_frame, text="")
+        self.logo_label.pack(pady=30)
+        self.display_static_logo()
+
+        self.username_entry = ctk.CTkEntry(self.login_frame, placeholder_text="Username", width=300, height=45)
+        self.username_entry.pack(pady=8)
+
+        self.password_entry = ctk.CTkEntry(self.login_frame, placeholder_text="Password", show="*", width=300, height=45)
+        self.password_entry.pack(pady=8)
+
+        self.login_error_label = ctk.CTkLabel(self.login_frame, text="", text_color="red", font=self.small_bold_font)
+        self.login_error_label.pack(pady=(0, 3))
+
+        login_btn = ctk.CTkButton(self.login_frame, text="Login", command=self.try_login, font=self.bold_font)
+        login_btn.pack(pady=8)
+
+        signup_btn = ctk.CTkButton(self.login_frame, text="Sign Up", command=self.open_signup_page, font=self.bold_font)
+        signup_btn.pack(pady=8)
+
+    def display_static_logo(self):
+        resized_image = self.logo_image.resize((150, 150), Image.Resampling.LANCZOS)
+        self.tk_image = ctk.CTkImage(light_image=resized_image, dark_image=resized_image, size=(150, 150))
+        self.logo_label.configure(image=self.tk_image)
+
+    def try_login(self):
+        username = self.username_entry.get()
+        password = self.password_entry.get()
+        if username == "admin" and password == "1234":
+            self.logined = True
+            self.login_frame.destroy()
+            self.setup_main_ui()
+        else:
+            self.username_entry.configure(border_color="red")
+            self.password_entry.configure(border_color="red")
+            self.login_error_label.configure(text="Username or password is incorrect.")
+
+    def open_signup_page(self):
+        webbrowser.open("https://google.com/")
+
+    def setup_main_ui(self):
         self.logo_label = ctk.CTkLabel(self, text="")
         self.logo_label.pack(pady=30)
-        self.logo_scale = 1.0
-        self.zoom_in = True
-        self.animate_logo()
+        self.display_static_logo()
 
-        # Status frame with indicator
         status_frame = ctk.CTkFrame(self, fg_color="transparent")
         status_frame.pack(pady=10)
 
         status_inner_frame = tk.Frame(status_frame, bg=self.cget("bg"))
         status_inner_frame.pack()
 
-        self.status_canvas = tk.Canvas(status_inner_frame, width=16, height=16, highlightthickness=0, bg=self.cget("bg"), bd=0)
+        self.status_canvas = tk.Canvas(status_inner_frame, width=16, height=16, highlightthickness=0,
+                                       bg=self.cget("bg"), bd=0)
         self.status_circle = self.status_canvas.create_oval(2, 2, 14, 14, fill="gray", outline="")
-        self.status_canvas.grid(row=0, column=0, padx=(0, 8), pady=4, sticky="ns")  # ↑ nudge canvas down a bit
+        self.status_canvas.grid(row=0, column=0, padx=(0, 8), pady=4, sticky="ns")
 
         self.status_label = ctk.CTkLabel(status_inner_frame, text="Status: Idle", font=self.bold_font)
         self.status_label.grid(row=0, column=1, sticky="w")
 
-        # Start/Stop button
         self.start_button = ctk.CTkButton(self, text="Start", command=self.toggle_state, font=self.bold_font)
         self.start_button.pack(pady=10)
 
-        # Resource selection label
         ctk.CTkLabel(self, text="Resource Selection", font=self.bold_font).pack(pady=(20, 5))
         resource_frame = ctk.CTkFrame(self, fg_color="transparent")
         resource_frame.pack(pady=5)
@@ -81,14 +131,13 @@ class ToolkitApp(ctk.CTk):
         self.unit_combobox.set("MB")
         self.unit_combobox.grid(row=0, column=1, padx=10)
 
-        # Particle burst canvas
         self.flash_canvas_width = 400
-        self.flash_canvas = tk.Canvas(self, width=self.flash_canvas_width, height=20, bg=self.cget("bg"), highlightthickness=0, bd=0)
+        self.flash_canvas = tk.Canvas(self, width=self.flash_canvas_width, height=20, bg=self.cget("bg"),
+                                      highlightthickness=0, bd=0)
         self.flash_canvas.pack(pady=(20, 0))
         self.particles = []
         self.animate_particles()
 
-        # Username and balance
         username = getpass.getuser()
         balance_amount = "125.00"
         user_balance_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -101,24 +150,6 @@ class ToolkitApp(ctk.CTk):
 
         self.app_state = "Idle"
         self.is_active = False
-        if os.name == 'nt':
-            icon_path = os.path.abspath("assets/images/logo.ico")
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(u"mycompany.myproduct.subproduct.version")
-            self.iconbitmap(icon_path)
-
-    def animate_logo(self):
-        new_size = int(150 * self.logo_scale)
-        resized_image = self.logo_image.resize((new_size, new_size), Image.Resampling.LANCZOS)
-        self.tk_image = ctk.CTkImage(light_image=resized_image, dark_image=resized_image, size=(new_size, new_size))
-        self.logo_label.configure(image=self.tk_image)
-
-        self.logo_scale += 0.01 if self.zoom_in else -0.01
-        if self.logo_scale >= 1.2:
-            self.zoom_in = False
-        elif self.logo_scale <= 1.0:
-            self.zoom_in = True
-
-        self.after(50, self.animate_logo)
 
     def toggle_state(self):
         if not self.is_active:
