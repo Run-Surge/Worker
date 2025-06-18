@@ -1,5 +1,3 @@
-"""Job processing logic for the worker node."""
-
 import threading
 import time
 import pickle
@@ -12,8 +10,8 @@ from .cache_manager import CacheManager
 from ..utils.logging_setup import setup_logging
 
 
-class JobStatus(Enum):
-    """Job execution status."""
+class TaskStatus(Enum):
+    """Task execution status."""
     PENDING = "pending"
     FETCHING_FILES = "fetching_files"
     FETCHING_DATA = "fetching_data"
@@ -23,11 +21,11 @@ class JobStatus(Enum):
 
 
 @dataclass
-class JobContext:
-    """Context information for a running job."""
-    job_id: str
-    assignment: Any  # JobAssignment proto
-    status: JobStatus
+class TaskContext:
+    """Context information for a running task."""
+    task_id: str
+    assignment: Any  # TaskAssignment proto
+    status: TaskStatus
     thread: Optional[threading.Thread]
     start_time: float
     end_time: Optional[float]
@@ -41,11 +39,11 @@ class JobContext:
             self.thread = None
 
 
-class JobProcessor:
+class TaskProcessor:
     """
-    Handles the execution lifecycle of individual jobs.
+    Handles the execution lifecycle of individual tasks.
     
-    This is currently a stub implementation that simulates job processing.
+    This is currently a stub implementation that simulates task processing.
     TODO: Implement actual Python code execution, file fetching, and result handling.
     """
     
@@ -55,12 +53,12 @@ class JobProcessor:
         self.worker_id = worker_id
         self.logger = setup_logging(worker_id)
     
-    def create_job_context(self, job_assignment, cpu_allocated: float = 1.0, memory_allocated: float = 1.0) -> JobContext:
-        """Create a new job context from assignment."""
-        return JobContext(
-            job_id=job_assignment.job_id,
-            assignment=job_assignment,
-            status=JobStatus.PENDING,
+    def create_task_context(self, task_assignment, cpu_allocated: float = 1.0, memory_allocated: float = 1.0) -> TaskContext:
+        """Create a new task context from assignment."""
+        return TaskContext(
+            task_id=task_assignment.task_id,
+            assignment=task_assignment,
+            status=TaskStatus.PENDING,
             thread=None,
             start_time=time.time(),
             end_time=None,
@@ -70,70 +68,70 @@ class JobProcessor:
             memory_allocated=memory_allocated
         )
     
-    def start_job(self, job_context: JobContext, completion_callback) -> bool:
+    def start_task(self, task_context: TaskContext, completion_callback) -> bool:
         """
-        Start job execution in a separate thread.
+        Start task execution in a separate thread.
         
         Args:
-            job_context: Job context to execute
-            completion_callback: Function to call when job completes (job_id, success, result, error)
+            task_context: Task context to execute
+            completion_callback: Function to call when task completes (task_id, success, result, error)
             
         Returns:
-            True if job started successfully, False otherwise
+            True if task started successfully, False otherwise
         """
         try:
-            # Create and start the job thread
-            job_thread = threading.Thread(
-                target=self._execute_job,
-                args=(job_context, completion_callback),
-                name=f"job_{job_context.job_id}",
+            # Create and start the task thread
+            task_thread = threading.Thread(
+                target=self._execute_task,
+                args=(task_context, completion_callback),
+                name=f"task_{task_context.task_id}",
                 daemon=True
             )
             
-            job_context.thread = job_thread
-            job_thread.start()
+            task_context.thread = task_thread
+            task_thread.start()
             
-            self.logger.info(f"Started job {job_context.job_id} in thread {job_thread.name}")
+            self.logger.info(f"Started task {task_context.task_id} in thread {task_thread.name}")
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to start job {job_context.job_id}: {e}")
-            job_context.status = JobStatus.FAILED
-            job_context.error = str(e)
+            self.logger.error(f"Failed to start task {task_context.task_id}: {e}")
+            task_context.status = TaskStatus.FAILED
+            task_context.error = str(e)
             return False
     
-    def _execute_job(self, job_context: JobContext, completion_callback):
-        """Execute the job in the current thread."""
+    def _execute_task(self, task_context: TaskContext, completion_callback):
+        """Execute the task in the current thread."""
         try:
-            self.logger.info(f"Executing job {job_context.job_id}")
+            self.logger.info(f"Executing task {task_context.task_id}")
             
             # Step 1: Fetch Python file
-            job_context.status = JobStatus.FETCHING_FILES
-            python_code = self._fetch_python_file(job_context.assignment.python_file)
+            task_context.status = TaskStatus.FETCHING_FILES
+            python_code = self._fetch_python_file(task_context.assignment.python_file)
             
             # Step 2: Fetch required data
-            job_context.status = JobStatus.FETCHING_DATA
-            required_data = self._fetch_required_data(job_context.assignment.required_data_ids)
+            task_context.status = TaskStatus.FETCHING_DATA
+            required_data = self._fetch_required_data(task_context.assignment.required_data_ids)
             
-            # Step 3: Execute the job
-            job_context.status = JobStatus.EXECUTING
+            # Step 3: Execute the task
+            task_context.status = TaskStatus.EXECUTING
             result = self._execute_python_code(python_code, required_data)
             
             # Step 4: Handle result
-            job_context.result = result
-            job_context.status = JobStatus.COMPLETED
-            job_context.end_time = time.time()
+            task_context.result = result
+            task_context.status = TaskStatus.COMPLETED
+            task_context.end_time = time.time()
             
-            self.logger.info(f"Job {job_context.job_id} completed successfully")
-            completion_callback(job_context.job_id, True, result, None)
+            self.logger.info(f"Task {task_context.task_id} completed successfully")
+            completion_callback(task_context.task_id, True, result, None)
             
         except Exception as e:
-            self.logger.error(f"Job {job_context.job_id} failed: {e}")
-            job_context.status = JobStatus.FAILED
-            job_context.error = str(e)
-            job_context.end_time = time.time()
+            self.logger.error(f"Task {task_context.task_id} failed: {e}")
+            task_context.status = TaskStatus.FAILED
+            task_context.error = str(e)
+            task_context.end_time = time.time()
             
-            completion_callback(job_context.job_id, False, None, str(e))
+            completion_callback(task_context.task_id, False, None, str(e))
     
     def _fetch_python_file(self, file_identifier) -> str:
         """
@@ -149,7 +147,7 @@ class JobProcessor:
         # For now, return a dummy Python code
         return """
 def process_data(data):
-    # Dummy job processing
+    # Dummy task processing
     import time
     time.sleep(1)  # Simulate work
     return {"processed": True, "input_data": str(data)}
@@ -212,22 +210,22 @@ def process_data(data):
             self.logger.error(f"Code execution failed: {e}")
             raise
     
-    def get_job_info(self, job_context: JobContext) -> Dict[str, Any]:
-        """Get information about a job."""
+    def get_task_info(self, task_context: TaskContext) -> Dict[str, Any]:
+        """Get information about a task."""
         execution_time = None
-        if job_context.end_time:
-            execution_time = job_context.end_time - job_context.start_time
-        elif job_context.status != JobStatus.PENDING:
-            execution_time = time.time() - job_context.start_time
+        if task_context.end_time:
+            execution_time = task_context.end_time - task_context.start_time
+        elif task_context.status != TaskStatus.PENDING:
+            execution_time = time.time() - task_context.start_time
         
         return {
-            "job_id": job_context.job_id,
-            "status": job_context.status.value,
-            "start_time": job_context.start_time,
-            "end_time": job_context.end_time,
+            "task_id": task_context.task_id,
+            "status": task_context.status.value,
+            "start_time": task_context.start_time,
+            "end_time": task_context.end_time,
             "execution_time": execution_time,
-            "cpu_allocated": job_context.cpu_allocated,
-            "memory_allocated": job_context.memory_allocated,
-            "error": job_context.error,
-            "thread_alive": job_context.thread.is_alive() if job_context.thread else False
+            "cpu_allocated": task_context.cpu_allocated,
+            "memory_allocated": task_context.memory_allocated,
+            "error": task_context.error,
+            "thread_alive": task_context.thread.is_alive() if task_context.thread else False
         } 

@@ -44,7 +44,7 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
             context: gRPC context
             
         Returns:
-            WorkerStatus proto with current worker state and job information
+            WorkerStatus proto with current worker state and task information
         """
         try:
             self.logger.debug("GetWorkerStatus called")
@@ -64,11 +64,11 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
             # Create and return WorkerStatus proto
             worker_status = worker_pb2.WorkerStatus(
                 state=state_mapping.get(self.worker_manager.state, worker_pb2.WORKER_STATE_UNSPECIFIED),
-                current_job_id=status_info.get("current_job_id", "")
+                current_task_id=status_info.get("current_task_id", "")
             )
             
             self.logger.debug(f"Returning worker status: state={self.worker_manager.state.name}, "
-                            f"current_job={status_info.get('current_job_id', 'none')}")
+                            f"current_task={status_info.get('current_task_id', 'none')}")
             
             return worker_status
             
@@ -78,23 +78,23 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
             context.set_details(f"Internal error: {str(e)}")
             return worker_pb2.WorkerStatus()
     
-    def AssignJob(self, request: worker_pb2.JobAssignment, context: grpc.ServicerContext) -> common_pb2.StatusResponse:
+    def AssignTask(self, request: worker_pb2.TaskAssignment, context: grpc.ServicerContext) -> common_pb2.StatusResponse:
         """
-        Assign a new job to the worker.
+        Assign a new task to the worker.
         
         Args:
-            request: JobAssignment proto with job details
+            request: TaskAssignment proto with task details
             context: gRPC context
             
         Returns:
             StatusResponse indicating success or failure
         """
         try:
-            job_id = request.job_id
-            self.logger.info(f"AssignJob called for job {job_id}")
+            task_id = request.task_id
+            self.logger.info(f"AssignTask called for task {task_id}")
             
             # Delegate to worker manager
-            success, message = self.worker_manager.assign_job(request)
+            success, message = self.worker_manager.assign_task(request)
             
             # Create status response
             response = common_pb2.StatusResponse(
@@ -103,10 +103,10 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
             )
             
             if success:
-                self.logger.info(f"Job {job_id} assigned successfully")
+                self.logger.info(f"Task {task_id} assigned successfully")
             else:
-                self.logger.warning(f"Job {job_id} assignment failed: {message}")
-                # Set gRPC error code for job rejection
+                self.logger.warning(f"Task {task_id} assignment failed: {message}")
+                # Set gRPC error code for task rejection
                 if "insufficient" in message.lower() or "limit" in message.lower():
                     context.set_code(grpc.StatusCode.RESOURCE_EXHAUSTED)
                 else:
@@ -115,7 +115,7 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
             return response
             
         except Exception as e:
-            self.logger.error(f"Error in AssignJob: {e}")
+            self.logger.error(f"Error in AssignTask: {e}")
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(f"Internal error: {str(e)}")
             return common_pb2.StatusResponse(

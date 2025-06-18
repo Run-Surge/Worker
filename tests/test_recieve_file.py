@@ -59,7 +59,7 @@ def test_receive_file():
     # Test configuration
     dummy_file_path = os.path.join(os.path.dirname(__file__), 'dummy_file.txt')
     data_id = "test_dummy_file"
-    job_id = "test_job_006"
+    job_id = "test_job_007"
     file_name = "dummy_file.txt"
     
     # Verify dummy file exists

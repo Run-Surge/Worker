@@ -30,11 +30,11 @@ message WorkerStatus {
 }
 
 // Details of a job assigned to a Worker.
-message JobAssignment {
+message TaskAssignment {
   string job_id = 1;
-  project_common.FileIdentifier python_file = 2; // Identifier for the .py file (uses common type)
-  project_common.DataIdentifier required_data_ids = 3; // single data file
-  project_common.DataIdentifier produced_data_id = 4;      // Data this job will produce
+  bytes python_file = 2; // Python file
+  string python_file_name = 3; // Python file name
+  string data_id = 4; // Data id
 }
 
 
@@ -48,7 +48,7 @@ message DataUploadRequest {
 service WorkerService {
   rpc GetWorkerStatus(google.protobuf.Empty) returns (WorkerStatus);
 
-  rpc AssignJob(JobAssignment) returns (project_common.StatusResponse);
+  rpc AssignTask(TaskAssignment) returns (project_common.StatusResponse);
 
   rpc ReceiveData(stream DataUploadRequest) returns (project_common.StatusResponse);
 

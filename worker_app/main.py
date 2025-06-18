@@ -40,10 +40,10 @@ def parse_arguments():
     )
     
     parser.add_argument(
-        '--max-jobs', 
+        '--max-tasks', 
         type=int, 
         default=1,
-        help='Maximum number of concurrent jobs (default: 1)'
+        help='Maximum number of concurrent tasks (default: 1)'
     )
     
     parser.add_argument(
@@ -89,7 +89,7 @@ def create_config(args) -> Config:
     
     config.listen_port = args.port
     config.master_address = args.master_address
-    config.max_concurrent_jobs = args.max_jobs
+    config.max_concurrent_tasks = args.max_tasks
     config.log_level = args.log_level
     config.cache_size_limit_mb = args.cache_size_mb
     
@@ -152,7 +152,7 @@ def main():
         logger.info(f"Starting worker node {config.worker_id}")
         logger.info(f"Configuration: port={config.listen_port}, "
                    f"master={config.master_address}, "
-                   f"max_jobs={config.max_concurrent_jobs}")
+                   f"max_tasks={config.max_concurrent_tasks}")
         
         # Create worker manager
         logger.info("Initializing worker manager...")
@@ -175,7 +175,7 @@ def main():
 
         #TODO: register the worker with the master
 
-        logger.info(f"Worker {config.worker_id} is running and ready to accept jobs")
+        logger.info(f"Worker {config.worker_id} is running and ready to accept tasks")
         logger.info(f"Listening on port {config.listen_port}")
         
         # Display resource information
