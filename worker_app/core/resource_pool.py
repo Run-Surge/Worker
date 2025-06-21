@@ -5,6 +5,7 @@ import threading
 import time
 from typing import Optional
 from typing import Dict, Any
+from ..utils.logging_setup import setup_logging
 
 
 class ResourcePool:
@@ -19,7 +20,7 @@ class ResourcePool:
         # Auto-detect system resources if not provided
         self.total_cpu_cores = total_cpu_cores or psutil.cpu_count()
         self.total_memory_mb = total_memory_mb or (psutil.virtual_memory().total / (1024**2))
-        
+        self.logger = setup_logging('INFO')
         # Track allocated resources
         self.allocated_cpu_cores = 0.0
         self.allocated_memory_mb = 0.0
@@ -39,14 +40,13 @@ class ResourcePool:
         Returns:
             True if resources are available (currently always True for simulation)
         """
-        with self.lock:
-            cpu_available = (self.allocated_cpu_cores + required_cpu) <= self.total_cpu_cores
-            memory_available = (self.allocated_memory_mb + required_memory_mb) <= self.total_memory_mb
-            
-            # For now, always return True (simulation mode)
-            # Later: return cpu_available and memory_available
-            return True
-    
+        cpu_available = (self.allocated_cpu_cores + required_cpu) <= self.total_cpu_cores
+        memory_available = (self.allocated_memory_mb + required_memory_mb) <= self.total_memory_mb
+        
+        # For now, always return True (simulation mode)
+        # Later: return cpu_available and memory_available
+        return True
+
     def allocate_resources(self, task_id: str, cpu_cores: float = 1.0, memory_mb: float = 1024) -> bool:
         """
         Reserve resources for a task.
@@ -60,6 +60,7 @@ class ResourcePool:
             True if resources were successfully allocated
         """
         #TODO: make it dynamic or remove it
+        self.logger.info(f"Allocating resources for task {task_id}")
         with self.lock:
             if self.can_accept_task(cpu_cores, memory_mb):
                 self.allocated_cpu_cores += cpu_cores

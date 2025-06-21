@@ -14,21 +14,24 @@ message StatusResponse {
 }
 
 message DataIdentifier {
-  string id = 1;
+  int64 id = 1;
 }
 
 message FileIdentifier {
-  string id = 1;
+  int64 id = 1;
 }
 
 // Metadata about data before streaming
 message DataMetadata {
-  bool found = 1;                 // True if data_id was found
-  DataType data_type = 2;         // Type of the data being streamed
+  int64 data_id = 1;
+  string data_name = 2;
   int64 total_size_bytes = 3;     // Total size of the data to be streamed
-  string error_message = 4;       // Message if found is false or an error occurred
+  string ip_address = 4;
+  int32 port = 5;
+  string hash = 6;
+  bool is_on_master = 7;
+  int64 task_id = 8;
 }
-
 // Chunk of data for streaming
 message DataChunk {
   bytes chunk_data = 1;           // Raw data chunk
@@ -37,8 +40,8 @@ message DataChunk {
 
 
 message DataInfo {
-  string data_id = 2;
-  string job_id = 1;
+  int64 data_id = 1;
+  int64 task_id = 2;
   string file_name = 3;
   string size = 4; // in bytes
   string hash = 5; // sha256 hash of the file

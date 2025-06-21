@@ -1,16 +1,18 @@
+import os
+import asyncio
 import threading
 import time
-import pickle
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 from enum import Enum
 
+from protos import common_pb2
 from protos.worker_pb2 import TaskAssignment
 
 from ..config import Config
 from .cache_manager import CacheManager
 from ..utils.logging_setup import setup_logging
-
+from .master_client import MasterClient
 
 class TaskStatus(Enum):
     """Task execution status."""
@@ -21,12 +23,18 @@ class TaskStatus(Enum):
     COMPLETED = "completed"
     FAILED = "failed"
 
+@dataclass
+class TaskDataInfo:
+    outsite_status: common_pb2.DataMetadata | None=None
+    is_downloaded: bool=False
+    data_path: str | None=None
 
 @dataclass
 class TaskContext:
     """Context information for a running task."""
-    task_id: str
-    assignment: TaskAssignment  # TaskAssignment proto
+    task_id: int
+    task_assignment: TaskAssignment  # TaskAssignment proto
+    required_data_status: dict[int, TaskDataInfo]
     status: TaskStatus
     thread: Optional[threading.Thread]
     start_time: float
@@ -49,17 +57,25 @@ class TaskProcessor:
     TODO: Implement actual Python code execution, file fetching, and result handling.
     """
     
-    def __init__(self, config: Config, data_cache: CacheManager, worker_id: str):
+    def __init__(self, config: Config, data_cache: CacheManager, worker_id: str, master_client: MasterClient):
         self.config = config
         self.data_cache = data_cache
         self.worker_id = worker_id
-        self.logger = setup_logging(worker_id)
+        self.master_client = master_client
+        self.logger = setup_logging(config.log_level)
     
-    def create_task_context(self, task_assignment, cpu_allocated: float = 1.0, memory_allocated: float = 1.0) -> TaskContext:
+    def create_task_context(self, task_assignment: TaskAssignment, cpu_allocated: float = 1.0, memory_allocated: float = 1.0) -> TaskContext:
         """Create a new task context from assignment."""
+        
+        required_data_status = {}
+        for data_id in task_assignment.required_data_ids:
+            required_data_status[data_id] = TaskDataInfo()
+        
+        
         return TaskContext(
             task_id=task_assignment.task_id,
-            assignment=task_assignment,
+            task_assignment=task_assignment,
+            required_data_status=required_data_status,
             status=TaskStatus.PENDING,
             thread=None,
             start_time=time.time(),
@@ -83,6 +99,7 @@ class TaskProcessor:
         """
         try:
             # Create and start the task thread
+            self.logger.info(f"Starting task {task_context.task_id} in a new thread")
             task_thread = threading.Thread(
                 target=self._execute_task,
                 args=(task_context, completion_callback),
@@ -102,22 +119,49 @@ class TaskProcessor:
             task_context.error = str(e)
             return False
     
+    def _store_python_script(self, python_script: str, task_id: int, file_name: str) ->str:
+        """
+        Store the Python script in the shared folder.
+        """
+        self.logger.debug(f"Storing Python script: {file_name}")
+        file_path = os.path.join(self.config.cache_dir, str(task_id), file_name)
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        try:
+            with open(file_path, "wb") as f:
+                f.write(python_script)
+        except Exception as e:
+            self.logger.error(f"Failed to store Python script: {e}")
+            raise
+
+        return file_path
+
     def _execute_task(self, task_context: TaskContext, completion_callback):
         """Execute the task in the current thread."""
+        #TODO: just turn this into an async call and remove the thread, the thread doesn't add anything
+        with asyncio.Runner() as runner:
+            runner.run(self._execute_task_async(task_context, completion_callback))
+
+    async def _execute_task_async(self, task_context: TaskContext, completion_callback):
         try:
             self.logger.info(f"Executing task {task_context.task_id}")
             
-            # Step 1: Fetch Python file
+            # Step 1: Fetch Python script
+            task_assignment = task_context.task_assignment
             task_context.status = TaskStatus.FETCHING_FILES
-            python_code = self._fetch_python_file(task_context.assignment.python_file)
+            python_script_path = self._store_python_script(
+                task_assignment.python_file,
+                task_context.task_id,
+                task_assignment.python_file_name
+                )
+
             
             # Step 2: Fetch required data
             task_context.status = TaskStatus.FETCHING_DATA
-            required_data = self._fetch_required_data(task_context.assignment.required_data_ids)
+            await self._fetch_required_data(task_context.required_data_status)
             
             # Step 3: Execute the task
             task_context.status = TaskStatus.EXECUTING
-            result = self._execute_python_code(python_code, required_data)
+            result = await self._execute_python_code(task_assignment, python_script_path)
             
             # Step 4: Handle result
             task_context.result = result
@@ -125,7 +169,7 @@ class TaskProcessor:
             task_context.end_time = time.time()
             
             self.logger.info(f"Task {task_context.task_id} completed successfully")
-            completion_callback(task_context.task_id, True, result, None)
+            completion_callback(task_context.task_assignment, True, result, None)
             
         except Exception as e:
             self.logger.error(f"Task {task_context.task_id} failed: {e}")
@@ -133,59 +177,53 @@ class TaskProcessor:
             task_context.error = str(e)
             task_context.end_time = time.time()
             
-            completion_callback(task_context.task_id, False, None, str(e))
+            completion_callback(task_context.task_assignment, False, None, str(e))
     
-    def _fetch_python_file(self, file_identifier) -> str:
-        """
-        Fetch Python file from master or cache.
-        
-        TODO: Implement actual gRPC streaming to fetch files.
-        """
-        self.logger.debug(f"Fetching Python file: {file_identifier.id}")
-        
-        # Simulate file fetching
-        time.sleep(0.1)  # Simulate network delay
-        
-        # For now, return a dummy Python code
-        return """
-def process_data(data):
-    # Dummy task processing
-    import time
-    time.sleep(1)  # Simulate work
-    return {"processed": True, "input_data": str(data)}
-"""
     
-    def _fetch_required_data(self, data_identifier) -> Any:
+    async def _fetch_required_data(self, required_data_status: dict[str, TaskDataInfo]):
         """
         Fetch required data from cache or other workers/master.
-        
+        This waits for a notification from the master that the data is ready.
+
         TODO: Implement actual gRPC streaming to fetch data.
         """
-        data_id = data_identifier.id
-        self.logger.debug(f"Fetching required data: {data_id}")
-        
-        # Check cache first
-        cached_data = self.data_cache.get(data_id)
-        if cached_data is not None:
-            self.logger.debug(f"Data {data_id} found in cache")
-            return cached_data
-        
-        # Simulate data fetching from remote source
-        time.sleep(0.2)  # Simulate network delay
-        
-        # For now, return dummy data
-        dummy_data = {"sample_data": f"data_for_{data_id}", "timestamp": time.time()}
-        
-        # Cache the fetched data
-        self.data_cache.put(data_id, dummy_data)
-        
-        return dummy_data
+        self.logger.debug(f"Fetching required data: {required_data_status}")
+        try:
+            cnt = 0
+            while len(required_data_status) != cnt:
+                has_downloaded = False
+                for data_id, data_info in required_data_status.items():
+                    if data_info.is_downloaded:
+                        continue
+                    
+                    if data_info.outsite_status is None:
+                        self.logger.debug(f"Waiting for data {data_id} to be ready")
+                        continue
+                    self.logger.debug(f"Streaming data {data_id} from {data_info.outsite_status.ip_address}:{data_info.outsite_status.port}")
+                    data_path = 'await self.master_client.stream_data(data_info.outsite_status)'
+                    data_info.is_downloaded = True
+                    data_info.data_path = data_path
+                    cnt += 1
+                    has_downloaded = True
+
+                if not has_downloaded:
+                    self.logger.debug(f"Waiting for data to be ready, sleeping for 5 seconds")
+                    await asyncio.sleep(5)
+                    continue
+
+
+                    
+                
+        except Exception as e:
+            self.logger.error(f"Failed to fetch required data: {e}")
+            raise
+
     
-    def _execute_python_code(self, python_code: str, input_data: Any) -> Any:
+    async def _execute_python_code(self, task_assignment: TaskAssignment, python_script_path: str) -> Any:
         """
         Execute the Python code with the provided data.
         
-        TODO: Implement safe execution environment (subprocess or container).
+        TODO: invoke VM to execute the python code using the python script path. (it should know data file names, path by itself)
         """
         self.logger.debug("Executing Python code")
         
@@ -201,7 +239,7 @@ def process_data(data):
             # Simulate processing result
             result = {
                 "status": "success",
-                "processed_data": f"Processed: {input_data}",
+                "processed_data": f"Processed: {task_assignment.required_data_ids}",
                 "execution_time": 1.0,
                 "worker_id": self.worker_id
             }

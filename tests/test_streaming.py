@@ -5,7 +5,6 @@ import sys
 import time
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'protos'))
 from protos import common_pb2, worker_pb2_grpc
-from worker_app.security.interceptor import MetadataClientInterceptor
 
 def get_array_size(array):
     size = 0
@@ -16,7 +15,7 @@ def get_array_size(array):
 def test_stream_data(data_id):
     # Create a gRPC channel
     channel = grpc.insecure_channel('localhost:50051')
-    stub = worker_pb2_grpc.WorkerServiceStub(channel, interceptors=[MetadataClientInterceptor()])
+    stub = worker_pb2_grpc.WorkerServiceStub(channel)
 
     # Request the dummy data
      
@@ -56,11 +55,11 @@ def test_stream_data(data_id):
     # os.rmdir(temp_dir)
 
 files = [
-    'test_1mb.txt',
-    'test_10mb.txt',
-    'test_50mb.txt',
-    'test_100mb.txt',
-    'test_250mb.txt',
+    1,
+    # 'test_10mb.txt',
+    # 'test_50mb.txt',
+    # 'test_100mb.txt',
+    # 'test_250mb.txt',
     # 'test_500mb.txt'
 ]
 

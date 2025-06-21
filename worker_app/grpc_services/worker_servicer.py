@@ -4,7 +4,7 @@ import sys
 import os
 import traceback
 import time
-from typing import Generator
+from typing import AsyncGenerator
 
 import grpc
 from google.protobuf.empty_pb2 import Empty
@@ -14,12 +14,12 @@ from protos import worker_pb2
 from protos import worker_pb2_grpc
 from protos import common_pb2
 
-from protos.worker_pb2 import TaskAssignment, DataUploadRequest
+from protos.worker_pb2 import TaskAssignment, DataUploadRequest, DataNotification
 
 from ..core.worker_manager import WorkerManager, WorkerState
 from ..utils.logging_setup import setup_logging
 from ..utils.util import format_bytes
-from ..core.data_manager import DataManager
+from ..core.data_service import DataService
 from ..config import Config
 
 class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
@@ -117,6 +117,7 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
             return response
             
         except Exception as e:
+            print(traceback.format_exc())
             self.logger.error(f"Error in AssignTask: {e}")
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(f"Internal error: {str(e)}")
@@ -288,10 +289,10 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
             return common_pb2.StatusResponse(
                 success=False,
                 message=f"Internal error: {str(e)}"
-            ) 
+            )
         
 
-    def ReceiveData(self, request_iterator: Generator[DataUploadRequest, None, None], context: grpc.ServicerContext) -> common_pb2.StatusResponse:
+    def ReceiveData(self, request_iterator: AsyncGenerator[DataUploadRequest, None], context: grpc.ServicerContext) -> common_pb2.StatusResponse:
         """
         Upload data to the worker.
         
@@ -299,7 +300,7 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
             request: DataUploadRequest with data info and chunk
                 - first one is data_info
                 - rest are chunks
-            context: gRPC context
+            context: grpc.ServicerContext
             
         Returns:
             StatusResponse indicating success or failure
@@ -307,11 +308,13 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
         try:
             self.logger.debug(f"ReceiveData called")
 
-            data_info = next(request_iterator).data_info
+            # Get first message containing data info
+            first_message = next(request_iterator)
+            data_info = first_message.data_info
             self.logger.debug(f"UploadData called for data {data_info.data_id}")
             
             # Delegate to worker manager
-            success, file_path = DataManager.recieveData(request_iterator, data_info, self.config.shared_dir)
+            success, file_path = DataService.recieveData(request_iterator, data_info, self.config.shared_dir)
             #TODO: maybe notify the task or something.
 
             # Create status response
@@ -323,8 +326,41 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
             return response
             
         except Exception as e:
-            traceback.print_exc()
+            print(traceback.format_exc())
             self.logger.error(f"Error in UploadData: {e}")
+            context.set_code(grpc.StatusCode.INTERNAL)
+            context.set_details(f"Internal error: {str(e)}")
+            return common_pb2.StatusResponse(
+                success=False,
+                message=f"Internal error: {str(e)}"
+            )
+        
+
+    def NotifyData(self, request: DataNotification, context: grpc.ServicerContext) -> common_pb2.StatusResponse:
+        """
+        Notify the worker that data is available.
+        """
+        try:
+            self.logger.debug(f"NotifyData called for data {request.data_id}")
+            
+            # Delegate to worker manager
+            success, message = self.worker_manager.notify_data(request)
+            
+            # Create status response
+            response = common_pb2.StatusResponse(
+                success=success,
+                message=message
+            )
+            
+            if success:
+                self.logger.debug(f"Data notification successful: {message}")
+            else:
+                self.logger.warning(f"Data notification failed: {message}")
+            
+            return response
+    
+        except Exception as e:
+            self.logger.error(f"Error in NotifyData: {e}")
             context.set_code(grpc.StatusCode.INTERNAL)
             context.set_details(f"Internal error: {str(e)}")
             return common_pb2.StatusResponse(

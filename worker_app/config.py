@@ -33,7 +33,7 @@ class Config:
     
     # Directories
     temp_dir: str = os.path.join('.', 'temp', 'worker_data')
-    cache_dir: str = os.path.join('.', 'temp', 'worker_cache')
+    cache_dir: str = os.path.join('.', 'worker_app', 'vm', 'shared')
     shared_dir: str = os.path.join('.', 'worker_app', 'vm', 'shared')
     
     @classmethod

@@ -6,6 +6,7 @@ import hashlib
 import time
 from pathlib import Path
 import time
+import traceback
 
 # Add the protos directory to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'protos'))
@@ -17,40 +18,46 @@ def calculate_file_hash(file_path: str) -> str:
     with open(file_path, 'rb') as f:
         return hashlib.sha256(f.read()).hexdigest()
 
-def create_data_upload_iterator(file_path: str, data_id: str, job_id: str, file_name: str):
+def create_data_upload_iterator(file_path: str, data_id: str, task_id: str, file_name: str):
     """Create an iterator that yields DataUploadRequest messages for file upload."""
     # Calculate file hash
-    file_hash = calculate_file_hash(file_path)
-    file_size = os.path.getsize(file_path)
-    
-    # Create DataInfo message
-    data_info = common_pb2.DataInfo(
-        data_id=data_id,
-        job_id=job_id,
-        file_name=file_name,
-        size=str(file_size),
-        hash=file_hash
-    )
-    
-    # Yield the data info first
-    yield worker_pb2.DataUploadRequest(data_info=data_info)
-    
-    # Read file in chunks and yield data chunks
-    chunk_size = 1024 * 1024  # 1MB chunks
-    print('wowwwwwy')
-    with open(file_path, 'rb') as f:
-        while True:
-            chunk_data = f.read(chunk_size)
-            if not chunk_data:
-                break
-            
-            is_last_chunk = f.tell() >= file_size
-            chunk = common_pb2.DataChunk(
-                chunk_data=chunk_data,
-                is_last_chunk=is_last_chunk
-            )
-            # Print chunk info
-            yield worker_pb2.DataUploadRequest(chunk=chunk)
+    try:
+        file_hash = calculate_file_hash(file_path)
+        file_size = os.path.getsize(file_path)
+        
+        # Create DataInfo message
+        data_info = common_pb2.DataInfo(
+            data_id=data_id,
+            task_id=task_id,
+            file_name=file_name,
+            size=str(file_size),
+            hash=file_hash
+        )
+        
+        # Yield the data info first
+        print('yielding data info')
+        yield worker_pb2.DataUploadRequest(data_info=data_info)
+        
+        # Read file in chunks and yield data chunks
+        chunk_size = 1024 * 1024  # 1MB chunks
+        print('wowwwwwy')
+        with open(file_path, 'rb') as f:
+            while True:
+                chunk_data = f.read(chunk_size)
+                if not chunk_data:
+                    break
+                
+                is_last_chunk = f.tell() >= file_size
+                chunk = common_pb2.DataChunk(
+                    chunk_data=chunk_data,
+                    is_last_chunk=is_last_chunk
+                )
+                # Print chunk info
+                print('yielding chunk')
+                yield worker_pb2.DataUploadRequest(chunk=chunk)
+    except Exception as e:
+        print(traceback.format_exc())
+        print(f"Error: {e}")
 
 def test_receive_file():
     """Test the ReceiveData functionality using dummy_file.txt."""
@@ -58,8 +65,8 @@ def test_receive_file():
     
     # Test configuration
     dummy_file_path = os.path.join(os.path.dirname(__file__), 'dummy_file.txt')
-    data_id = "test_dummy_file"
-    job_id = "test_job_007"
+    data_id = 1
+    task_id = 1
     file_name = "dummy_file.txt"
     
     # Verify dummy file exists
@@ -79,11 +86,11 @@ def test_receive_file():
         
         # Create data upload iterator
         request_iterator = create_data_upload_iterator(
-            dummy_file_path, data_id, job_id, file_name
+            dummy_file_path, data_id, task_id, file_name
         )
         print(type(request_iterator))
         
-        print(f"Uploading file with data_id: {data_id}, job_id: {job_id}")
+        print(f"Uploading file with data_id: {data_id}, task_id: {task_id}")
         start_time = time.time()
         # for request in request_iterator:
         #     print(request)

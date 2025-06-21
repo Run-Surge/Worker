@@ -31,9 +31,9 @@ message UnregisterWorkerRequest {
 
 message WorkerRegistrationRequest {
   string worker_address = 1;
-  int32 memory_mb = 2; // memory in MB
+  int32 memory = 2; // memory in bytes
   int32 cpu_count = 3; // number of CPUs
-  int32 disk_space_mb = 4; // disk space in MB
+  int32 disk_space = 4; // disk space in bytes
 }
 
 message WorkerRegistrationResponse {
@@ -42,7 +42,7 @@ message WorkerRegistrationResponse {
 }
 
 message DataStatusUpdateRequest {
-    project_common.DataIdentifier data_id = 1;
+    int64 data_id = 1;
     DataStatusCode status = 2;
 }
 

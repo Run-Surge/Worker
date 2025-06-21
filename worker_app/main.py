@@ -1,12 +1,12 @@
 """Main entry point for the worker node."""
 
 import argparse
+import asyncio
 import signal
 import sys
 import time
 from concurrent import futures
-import grpc
-
+import grpc.aio
 from .config import Config
 from .core.worker_manager import WorkerManager
 from .grpc_services.worker_servicer import WorkerServicer
@@ -101,11 +101,11 @@ def create_config(args) -> Config:
     return config
 
 
-def create_grpc_server(worker_servicer: WorkerServicer, port: int) -> grpc.Server:
+async def create_grpc_server(worker_servicer: WorkerServicer, port: int) -> grpc.Server:
     """Create and configure the gRPC server."""
     # Create server with thread pool
     #TODO: add authentication interceptor
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=10),
+    server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10),
                          interceptors=[])
     
     # Add servicer to server
@@ -121,11 +121,12 @@ def create_grpc_server(worker_servicer: WorkerServicer, port: int) -> grpc.Serve
 
 def setup_signal_handlers(server: grpc.Server, worker_manager: WorkerManager):
     """Set up signal handlers for graceful shutdown."""
+    running_loop = asyncio.get_running_loop()
     def signal_handler(signum, frame):
         print(f"\nReceived signal {signum}, starting graceful shutdown...")
         
-        # Stop accepting new requests
-        server.stop(grace=30)  # 30 second grace period
+        # This is a hack to stop wait for the server to stop, without using await because handler shouldn't be async
+        asyncio.run_coroutine_threadsafe(server.stop(grace=1), running_loop)  # 30 second grace period
         
         # Shutdown worker manager
         worker_manager.shutdown()
@@ -137,7 +138,7 @@ def setup_signal_handlers(server: grpc.Server, worker_manager: WorkerManager):
     signal.signal(signal.SIGTERM, signal_handler)
 
 
-def main():
+async def main():
     """Main function to start the worker node."""
     try:
         # Parse command-line arguments
@@ -164,13 +165,13 @@ def main():
         
         # Create and start gRPC server
         logger.info(f"Starting gRPC server on port {config.listen_port}...")
-        server = create_grpc_server(worker_servicer, config.listen_port)
+        server = await create_grpc_server(worker_servicer, config.listen_port)
         
         # Set up signal handlers for graceful shutdown
         setup_signal_handlers(server, worker_manager)
         
         # Start the server
-        server.start()
+        await server.start()
         
 
         #TODO: register the worker with the master
@@ -185,7 +186,7 @@ def main():
         
         try:
             # This enables the server to run indefinitely
-            server.wait_for_termination()
+            await server.wait_for_termination()
                 
         except KeyboardInterrupt:
             logger.info("Keyboard interrupt received, shutting down...")
@@ -193,7 +194,3 @@ def main():
     except Exception as e:
         print(f"Failed to start worker: {e}")
         sys.exit(1)
-
-
-if __name__ == '__main__':
-    main() 
