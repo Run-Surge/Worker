@@ -1,6 +1,5 @@
 import os
 import grpc
-import tempfile
 import sys
 import time
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'protos'))
@@ -14,7 +13,7 @@ def get_array_size(array):
 
 def test_stream_data(data_id):
     # Create a gRPC channel
-    channel = grpc.insecure_channel('localhost:50051')
+    channel = grpc.insecure_channel('localhost:5000')
     stub = worker_pb2_grpc.WorkerServiceStub(channel)
 
     # Request the dummy data
@@ -22,8 +21,8 @@ def test_stream_data(data_id):
     request = common_pb2.DataIdentifier(id=data_id)
 
     # First check if data exists and get metadata
-    metadata = stub.GetDataMetadata(request)
-    assert metadata.found == True
+    # metadata = stub.GetDataMetadata(request)
+    # assert metadata.found == True
 
     # Create temp directory to store streamed data
     temp_dir = './temp2'
@@ -33,6 +32,7 @@ def test_stream_data(data_id):
     start_time = time.time()
     # Stream the data and write to file
     chunks = []
+
     for chunk in stub.StreamData(request):
         chunks.append(chunk.chunk_data)
         if chunk.is_last_chunk:

@@ -14,7 +14,7 @@ message StatusResponse {
 }
 
 message DataIdentifier {
-  int64 id = 1;
+  int64 data_id = 1;
 }
 
 message FileIdentifier {

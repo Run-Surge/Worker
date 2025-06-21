@@ -13,6 +13,8 @@ from ..config import Config
 from .cache_manager import CacheManager
 from ..utils.logging_setup import setup_logging
 from .master_client import MasterClient
+import subprocess
+import sys
 
 class TaskStatus(Enum):
     """Task execution status."""
@@ -200,7 +202,7 @@ class TaskProcessor:
                         self.logger.debug(f"Waiting for data {data_id} to be ready")
                         continue
                     self.logger.debug(f"Streaming data {data_id} from {data_info.outsite_status.ip_address}:{data_info.outsite_status.port}")
-                    data_path = 'await self.master_client.stream_data(data_info.outsite_status)'
+                    data_path = await self.master_client.stream_data(data_info.outsite_status)
                     data_info.is_downloaded = True
                     data_info.data_path = data_path
                     cnt += 1
@@ -211,6 +213,8 @@ class TaskProcessor:
                     await asyncio.sleep(5)
                     continue
 
+
+            self.logger.debug(f"All data fetched")
 
                     
                 
@@ -236,6 +240,27 @@ class TaskProcessor:
             # 2. Execute the Python code with input_data
             # 3. Capture and return the result
             
+            def test_run_python_file(script_path: str):
+                # Ensure we're in the correct directory
+                original_dir = os.getcwd()
+                os.chdir(os.path.dirname(script_path))
+
+                try:
+                    # Run the Python file and capture output
+                    self.logger.debug(f"Running Python file: {script_path}")
+                    self.logger.debug(f"Current directory: {os.getcwd()}")
+                    result = subprocess.run([sys.executable, os.path.basename(script_path)], 
+                                        capture_output=True,
+                                        text=True)
+                    
+                    # Check the output contains the expected text
+                    self.logger.info(f"Result: {result.stdout}, length: {len(result.stdout)}")
+
+                finally:
+                    # Restore original directory
+                    os.chdir(original_dir)
+
+            test_run_python_file(python_script_path)
             # Simulate processing result
             result = {
                 "status": "success",

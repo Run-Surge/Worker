@@ -11,24 +11,29 @@ def create_data_notification(task_id: int, data_id: int):
     return DataNotification(
         task_id=task_id,
         data_id=data_id,
-        data_name="test.txt" + str(data_id),
+        data_name="test.txt",
         ip_address="localhost",
-        port=50051,
-        hash="1234567890"
+        port=5000,
+        hash="1234567890",
     )
 
 def create_task_assignment():
     return TaskAssignment(
-        task_id=2,
-        python_file=b"print('hello world!')",
+        task_id=12,
+        python_file=b"""
+print("Hello world!")
+with open('test.txt', 'r') as f:
+    print(f.read())
+
+    """,
         python_file_name="test.py",
         required_data_ids=[
-            1
+            1,
         ],
         job_id=1,
         output_data_infos=[
             OutputDataInfo(
-                data_id=1,
+                data_id=3,
                 data_name="test.txt"
             )
         ]
@@ -49,7 +54,8 @@ def test_task_assignment():
         print(f"Notifying data {data}")        
         data_notification = create_data_notification(task_assignment.task_id, data)
         print(data_notification)
-        stub.NotifyData(data_notification)
+        response = stub.NotifyData(data_notification)
+        print(response)
         time.sleep(10)
         
 

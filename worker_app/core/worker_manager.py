@@ -1,16 +1,18 @@
+import os
 import threading
 import time
 from typing import Dict, Optional, Tuple, Any
 from enum import Enum
 
 from ..config import Config
-from .cache_manager import CacheManager
+from .cache_manager import CacheManager, CacheEntry
 from .task_processor import TaskProcessor, TaskContext, TaskStatus
 from ..utils.logging_setup import setup_logging
 from .resource_pool import ResourcePool
 from protos.worker_pb2 import TaskAssignment, DataNotification
 from protos.common_pb2 import DataMetadata
 from .master_client import MasterClient
+from ..utils.util import create_data_path
 
 class WorkerState(Enum):
     """Worker states matching the proto definition."""
@@ -183,6 +185,18 @@ class WorkerManager:
         if success:
             self.logger.info(f"Task {task_assignment.task_id} completed - Success: {success}")
             #TODO: add output data to cache manager
+            for output_data_info in task_assignment.output_data_infos:
+                data_path = create_data_path(
+                    self.config.shared_dir,
+                    output_data_info.data_id,
+                    output_data_info.data_name
+                )
+
+                entry = CacheEntry(
+                    path=data_path,
+                    size_bytes=0, #TODO: get size of data
+                )
+                self.data_cache.add_cache_entry(output_data_info.data_id, entry)
             self.logger.info(f"adding output data to cache manager")
             #TODO: Report task completion to master
             self.logger.info(f"reporting task completion to master")
@@ -232,12 +246,16 @@ class WorkerManager:
             self.logger.warning(f"Task {data_notification.task_id} not found")
             return False, f"Task {data_notification.task_id} not found"
         
+
+        #TODO: fix this, ip and port shouldn't be passed, we should get it from token
         task.required_data_status[data_notification.data_id].outsite_status = DataMetadata(
             data_id=data_notification.data_id,
             data_name=data_notification.data_name,
             ip_address=data_notification.ip_address,
             port=data_notification.port,
-            hash=data_notification.hash
+            hash=data_notification.hash,
+            is_on_master=False,
+            task_id=data_notification.task_id
         )
 
         #TODO: download file from here instead of having a thread wait for it

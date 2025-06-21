@@ -30,7 +30,7 @@ class MasterClient:
             raise
 
     @asynccontextmanager
-    async def _get_worker_stub(self, worker_address: str) -> AsyncGenerator[master_pb2_grpc.MasterServiceStub, None]:
+    async def _get_worker_stub(self, worker_address: str) -> AsyncGenerator[worker_pb2_grpc.WorkerServiceStub, None]:
         try:
             channel = grpc.aio.insecure_channel(worker_address)
             async with channel:
@@ -60,8 +60,8 @@ class MasterClient:
         """
         Stream data from master or worker and return the path to the data
         """
-        self.logger.info(f"Streaming data {data_metadata.data_id} for task {data_metadata.task_id} from {data_metadata.ip_address}:{data_metadata.port}")
         if data_metadata.is_on_master:
+            self.logger.info(f"Streaming data {data_metadata.data_id} for task {data_metadata.task_id} from master")
             async with self._get_master_stub() as stub:
                 try:
                     response_iterator = stub.StreamData(data_id=data_metadata.data_id)
@@ -71,10 +71,14 @@ class MasterClient:
                     self.logger.error(f"Failed to get data from master: {e}")
                     raise
         else:   
+            self.logger.info(f"Streaming data {data_metadata.data_id} for task {data_metadata.task_id} from worker {data_metadata.ip_address}:{data_metadata.port}")
             worker_address = f"{data_metadata.ip_address}:{data_metadata.port}"
             async with self._get_worker_stub(worker_address) as stub:
                 try:
-                    response_iterator = stub.StreamData(data_id=data_metadata.data_id)
+                    response_iterator = stub.StreamData(
+                        common_pb2.DataIdentifier(
+                            id=data_metadata.data_id)
+                        )
                     path = await self._stream_data(data_metadata, response_iterator)
                     return path
                 except Exception as e:
