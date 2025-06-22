@@ -37,8 +37,10 @@ class CacheManager:
         
     def _add_dummy_data(self):
         path  = create_data_path(self.config.shared_dir, 1, 'test.txt')
+        path2  = create_data_path(self.config.shared_dir, 1, 'test2.txt')
         self.cache_entries = {
             1 : CacheEntry(path=path, size_bytes=os.path.getsize(path)),
+            2 : CacheEntry(path=path2, size_bytes=os.path.getsize(path)),
         }
 
     def _initialize_cache(self):

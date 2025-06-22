@@ -2,60 +2,46 @@ syntax = "proto3";
 package master_api;
 
 import "google/protobuf/empty.proto";
-import "common.proto"; // Import your common messages
+import "common.proto";
 
 service MasterService {
-  // Get metadata about a Python file before streaming
-  rpc GetPythonFileMetadata(project_common.FileIdentifier) returns (project_common.DataMetadata);
-  
-  // Stream Python file in chunks after getting metadata
-  rpc StreamPythonFile(project_common.FileIdentifier) returns (stream project_common.DataChunk);
-  
-  // Get metadata about data before streaming
-  rpc GetDataMetadata(project_common.DataIdentifier) returns (project_common.DataMetadata);
-  
-  // Stream data in chunks after getting metadata
-  rpc StreamData(project_common.DataIdentifier) returns (stream project_common.DataChunk);
-  
-  rpc UpdateDataStatus(DataStatusUpdateRequest) returns (project_common.StatusResponse);
-  rpc GetDataLocationAndStatus(project_common.DataIdentifier) returns (DataLocationInfoResponse);
+  rpc NodeRegister(NodeRegisterRequest) returns (NodeRegisterResponse);
+  rpc TaskComplete(TaskCompleteRequest) returns (project_common.StatusResponse);
+  rpc NodeUnregister(NodeUnregisterRequest) returns (project_common.StatusResponse);
+  // rpc NodeHeartbeat(NodeHeartbeatRequest) returns (NodeHeartbeatResponse);
+  // rpc JobFailed(JobFailedRequest) returns (JobFailedResponse);
 
-  rpc RegisterWorker(WorkerRegistrationRequest) returns (WorkerRegistrationResponse);
-  rpc UnregisterWorker(UnregisterWorkerRequest) returns (project_common.StatusResponse);
+ 
 }
 
-message UnregisterWorkerRequest {
-  string worker_id = 1;
+message NodeRegisterResponse {
+    int64 node_id = 1;
+    string message = 2;
+    bool success = 3;
+}
+
+message NodeUnregisterRequest {
+    int64 node_id = 1;
+}
+
+message NodeRegisterRequest {
+    string username = 1;
+    string password = 2;
+    string machine_fingerprint = 3;
+    int64 memory_bytes = 4;
+}
+
+message MasterDataNotification {
+  int64 data_id = 1;
+  int64 size = 2;
+  string hash = 3;
+}
+
+message TaskCompleteRequest {
+    int64 task_id = 1;
+    repeated MasterDataNotification data_notifications = 2;
 }
 
 
-message WorkerRegistrationRequest {
-  string worker_address = 1;
-  int32 memory = 2; // memory in bytes
-  int32 cpu_count = 3; // number of CPUs
-  int32 disk_space = 4; // disk space in bytes
-}
 
-message WorkerRegistrationResponse {
-  string worker_id = 1;
-  project_common.StatusResponse status = 2;
-}
 
-message DataStatusUpdateRequest {
-    int64 data_id = 1;
-    DataStatusCode status = 2;
-}
-
-enum DataStatusCode { 
-  DATA_STATUS_UNSPECIFIED = 0;
-  DATA_STATUS_AVAILABLE = 1;
-  DATA_STATUS_PROCESSING = 2;
-  DATA_STATUS_NOT_FOUND = 3;
-  DATA_STATUS_ERROR = 4;
-}
-
-message DataLocationInfoResponse {
-    DataStatusCode status = 1;
-    string node_address = 2;
-    string message = 3;
-}

@@ -13,8 +13,8 @@ class Config:
     worker_id: str = "worker_001"
     
     # Network settings
-    listen_port: int = 50051
-    master_address: str = "localhost:50050"
+    listen_port: int = 12345
+    master_address: str = "192.168.1.7:12345"
     
     # Resource limits
     max_concurrent_tasks: int = 1
@@ -35,6 +35,9 @@ class Config:
     temp_dir: str = os.path.join('.', 'temp', 'worker_data')
     cache_dir: str = os.path.join('.', 'worker_app', 'vm', 'shared')
     shared_dir: str = os.path.join('.', 'worker_app', 'vm', 'shared')
+
+    username: str = "abdo"
+    password: str = "123456"
     
     @classmethod
     def from_env(cls) -> 'Config':
@@ -48,6 +51,8 @@ class Config:
             log_level=os.getenv('LOG_LEVEL', cls.log_level),
             temp_dir=os.getenv('TEMP_DIR', cls.temp_dir),
             cache_dir=os.getenv('CACHE_DIR', cls.cache_dir),
+            username=os.getenv('CLIENT_USERNAME', cls.username),
+            password=os.getenv('CLIENT_PASSWORD', cls.password),
         )
     
     def ensure_directories(self):

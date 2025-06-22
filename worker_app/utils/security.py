@@ -1,3 +1,7 @@
+import uuid
+import socket
+import hashlib
+import platform
 from passlib.context import CryptContext
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict
@@ -22,6 +26,34 @@ class SecurityManager:
         except jwt.JWTError as e:
             print(f"JWTError: {e}")
             raise Exception("Invalid token")
+        
+    @staticmethod
+    def get_machine_fingerprint():
+    # Gather various pieces of system information
+        info_string = ""
+        try:
+            info_string += platform.platform() # OS, release, version, etc.
+        except Exception: pass
+        try:
+            info_string += platform.node() # Network name of the system
+        except Exception: pass
+        try:
+            info_string += platform.processor() # Processor name
+        except Exception: pass
+        try:
+            # Using uuid.getnode() for MAC address (can be inconsistent)
+            # You might replace this with get_system_uuid() for better uniqueness
+            info_string += str(uuid.getnode())
+        except Exception: pass
+        try:
+            info_string += str(socket.gethostname()) # Hostname
+        except Exception: pass
+        try:
+            info_string += str(socket.getfqdn()) # Fully qualified domain name
+        except Exception: pass
+
+        # Hash the combined string
+        return hashlib.sha256(info_string.encode()).hexdigest()
 
 
 # Create a singleton instance

@@ -10,6 +10,8 @@ from protos import worker_pb2_grpc
 from ..utils.logging_setup import setup_logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
+from ..utils.security import security_manager
+import traceback
 
 class MasterClient:
     def __init__(self, config: Config):
@@ -20,25 +22,43 @@ class MasterClient:
 
     @asynccontextmanager
     async def _get_master_stub(self) -> AsyncGenerator[master_pb2_grpc.MasterServiceStub, None]:
+        channel = None
         try:
-            channel = grpc.aio.insecure_channel(self.master_address)
-            async with channel:
-                stub = master_pb2_grpc.MasterServiceStub(channel)
-                yield stub
+            channel = grpc.aio.insecure_channel(self.master_address, options=[
+                ('grpc.enable_http_proxy', 0),
+                ('grpc.so_reuseaddr', 1),
+                ('grpc.use_local_subchannel_pool', 1),
+                ('grpc.dns_resolver_option.use_ipv4_first', 1),
+                ('grpc.dns_resolver_option.use_ipv6', 0)
+            ])
+            stub = master_pb2_grpc.MasterServiceStub(channel)
+            yield stub
         except Exception as e:
             self.logger.error(f"Failed to create stub to master: {e}")
             raise
+        finally:
+            if channel:
+                try:
+                    await channel.close()
+                except Exception as e:
+                    self.logger.warning(f"Error closing channel: {e}")
 
     @asynccontextmanager
     async def _get_worker_stub(self, worker_address: str) -> AsyncGenerator[worker_pb2_grpc.WorkerServiceStub, None]:
+        channel = None
         try:
             channel = grpc.aio.insecure_channel(worker_address)
-            async with channel:
-                stub = worker_pb2_grpc.WorkerServiceStub(channel)
-                yield stub
+            stub = worker_pb2_grpc.WorkerServiceStub(channel)
+            yield stub
         except Exception as e:
             self.logger.error(f"Failed to create stub to worker: {e}")
             raise
+        finally:
+            if channel:
+                try:
+                    await channel.close()
+                except Exception as e:
+                    self.logger.warning(f"Error closing channel: {e}")
 
     async def _stream_data(self, data_metadata: common_pb2.DataMetadata, response_iterator: AsyncGenerator[common_pb2.DataChunk, None]):
         data_path = os.path.join(self.shared_dir, str(data_metadata.task_id), data_metadata.data_name)
@@ -84,3 +104,32 @@ class MasterClient:
                 except Exception as e:
                     self.logger.error(f"Failed to get data from master: {e}")
                     raise
+
+
+    async def register_worker(self, config: Config):
+        async with self._get_master_stub() as stub:
+            try:
+                response = await stub.NodeRegister(master_pb2.NodeRegisterRequest(
+                    username=config.username,
+                    password=config.password,
+                    machine_fingerprint=security_manager.get_machine_fingerprint(),
+                    memory_bytes=config.memory_mb*1024*1024 #1GB
+                ))
+                config.worker_id = response.node_id
+                return response
+            except Exception as e:
+                # print(traceback.format_exc())
+                self.logger.error(f"Failed to register worker: {e}")
+                raise
+
+
+    async def deregister_worker(self, config: Config):
+        async with self._get_master_stub() as stub:
+            try:
+                response = await stub.NodeUnregister(master_pb2.NodeUnregisterRequest(
+                    node_id=config.worker_id
+                ))
+                return response
+            except Exception as e:
+                self.logger.error(f"Failed to deregister worker: {e}")
+                raise

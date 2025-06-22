@@ -2,6 +2,8 @@
 
 import argparse
 import asyncio
+import logging
+import threading
 import signal
 import sys
 import time
@@ -11,6 +13,7 @@ from .config import Config
 from .core.worker_manager import WorkerManager
 from .grpc_services.worker_servicer import WorkerServicer
 from .utils.logging_setup import setup_logging
+from .core.master_client import MasterClient
 # from .security.interceptor import AuthenticationServerInterceptor
 
 
@@ -35,8 +38,8 @@ def parse_arguments():
     parser.add_argument(
         '--master-address', 
         type=str, 
-        default='localhost:50050',
-        help='Address of the master node (default: localhost:50050)'
+        default='localhost:12345',
+        help='Address of the master node (default: localhost:12345)'
     )
     
     parser.add_argument(
@@ -118,8 +121,17 @@ async def create_grpc_server(worker_servicer: WorkerServicer, port: int) -> grpc
     
     return server
 
+def deregister_from_master(config: Config):
+    """Deregister the worker from the master."""
+    try:
+        master_client = MasterClient(config)
+        asyncio.run(master_client.deregister_worker(config))
+        print("Successfully deregistered from master")
+    except Exception as e:
+        print(f"Failed to deregister from master: {e}")
 
-def setup_signal_handlers(server: grpc.Server, worker_manager: WorkerManager):
+
+def setup_signal_handlers(server: grpc.Server, worker_manager: WorkerManager, config: Config):
     """Set up signal handlers for graceful shutdown."""
     running_loop = asyncio.get_running_loop()
     def signal_handler(signum, frame):
@@ -127,7 +139,9 @@ def setup_signal_handlers(server: grpc.Server, worker_manager: WorkerManager):
         
         # This is a hack to stop wait for the server to stop, without using await because handler shouldn't be async
         asyncio.run_coroutine_threadsafe(server.stop(grace=1), running_loop)  # 30 second grace period
-        
+        thread = threading.Thread(target=deregister_from_master, args=(config,))
+        thread.start()
+        thread.join()
         # Shutdown worker manager
         worker_manager.shutdown()
         
@@ -136,6 +150,23 @@ def setup_signal_handlers(server: grpc.Server, worker_manager: WorkerManager):
     
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+
+
+async def register_with_master(config: Config, server: grpc.Server, logger: logging.Logger):
+    """Register the worker with the master."""
+    try:    
+        master_client = MasterClient(config)
+        response = await master_client.register_worker(config)
+        if not response.success:
+            raise Exception(response.message)
+        config.worker_id = response.node_id
+    except Exception as e:
+        # print(f"Failed to register with master: {e}")
+        await server.stop(grace=1)
+        logger.info(f"Closing worker...")
+        sys.exit(1)
+
+
 
 
 async def main():
@@ -162,20 +193,20 @@ async def main():
         # Create gRPC servicer
         logger.info("Creating gRPC servicer...")
         worker_servicer = WorkerServicer(worker_manager, config)
-        
+        #TODO: add authentication interceptor
         # Create and start gRPC server
         logger.info(f"Starting gRPC server on port {config.listen_port}...")
         server = await create_grpc_server(worker_servicer, config.listen_port)
         
         # Set up signal handlers for graceful shutdown
-        setup_signal_handlers(server, worker_manager)
+        setup_signal_handlers(server, worker_manager, config)
         
         # Start the server
         await server.start()
         
 
-        #TODO: register the worker with the master
-
+        #TODO: register the worker with the master 
+        await register_with_master(config, server, logger)
         logger.info(f"Worker {config.worker_id} is running and ready to accept tasks")
         logger.info(f"Listening on port {config.listen_port}")
         
@@ -190,7 +221,7 @@ async def main():
                 
         except KeyboardInterrupt:
             logger.info("Keyboard interrupt received, shutting down...")
-            
+            await deregister_from_master(config)
     except Exception as e:
         print(f"Failed to start worker: {e}")
         sys.exit(1)

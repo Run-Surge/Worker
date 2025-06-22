@@ -201,6 +201,7 @@ class TaskProcessor:
                     if data_info.outsite_status is None:
                         self.logger.debug(f"Waiting for data {data_id} to be ready")
                         continue
+                    
                     self.logger.debug(f"Streaming data {data_id} from {data_info.outsite_status.ip_address}:{data_info.outsite_status.port}")
                     data_path = await self.master_client.stream_data(data_info.outsite_status)
                     data_info.is_downloaded = True
