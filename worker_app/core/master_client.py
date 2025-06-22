@@ -84,7 +84,7 @@ class MasterClient:
             self.logger.info(f"Streaming data {data_metadata.data_id} for task {data_metadata.task_id} from master")
             async with self._get_master_stub() as stub:
                 try:
-                    response_iterator = stub.StreamData(data_id=data_metadata.data_id)
+                    response_iterator = stub.StreamData(common_pb2.DataIdentifier(data_id=data_metadata.data_id))
                     path = await self._stream_data(data_metadata, response_iterator)
                     return path
                 except Exception as e:
@@ -97,7 +97,7 @@ class MasterClient:
                 try:
                     response_iterator = stub.StreamData(
                         common_pb2.DataIdentifier(
-                            id=data_metadata.data_id)
+                            data_id=data_metadata.data_id)
                         )
                     path = await self._stream_data(data_metadata, response_iterator)
                     return path
@@ -132,4 +132,13 @@ class MasterClient:
                 return response
             except Exception as e:
                 self.logger.error(f"Failed to deregister worker: {e}")
+                raise
+
+    async def task_complete(self, task_id: int):
+        async with self._get_master_stub() as stub:
+            try:
+                response = await stub.TaskComplete(master_pb2.TaskCompleteRequest(task_id=task_id))
+                return response
+            except Exception as e:
+                self.logger.error(f"Failed to complete task: {e}")
                 raise

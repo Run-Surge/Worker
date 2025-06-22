@@ -171,7 +171,7 @@ class TaskProcessor:
             task_context.end_time = time.time()
             
             self.logger.info(f"Task {task_context.task_id} completed successfully")
-            completion_callback(task_context.task_assignment, True, result, None)
+            await completion_callback(task_context.task_assignment, True, result, None)
             
         except Exception as e:
             self.logger.error(f"Task {task_context.task_id} failed: {e}")
@@ -179,7 +179,7 @@ class TaskProcessor:
             task_context.error = str(e)
             task_context.end_time = time.time()
             
-            completion_callback(task_context.task_assignment, False, None, str(e))
+            await completion_callback(task_context.task_assignment, False, None, str(e))
     
     
     async def _fetch_required_data(self, required_data_status: dict[str, TaskDataInfo]):
@@ -201,7 +201,6 @@ class TaskProcessor:
                     if data_info.outsite_status is None:
                         self.logger.debug(f"Waiting for data {data_id} to be ready")
                         continue
-                    
                     self.logger.debug(f"Streaming data {data_id} from {data_info.outsite_status.ip_address}:{data_info.outsite_status.port}")
                     data_path = await self.master_client.stream_data(data_info.outsite_status)
                     data_info.is_downloaded = True

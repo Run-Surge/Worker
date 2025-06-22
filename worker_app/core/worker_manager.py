@@ -114,7 +114,7 @@ class WorkerManager:
                 self.state = WorkerState.IDLE
             return True
 
-    def assign_task(self, task_assignment: TaskAssignment) -> Tuple[bool, str]:
+    async def assign_task(self, task_assignment: TaskAssignment) -> Tuple[bool, str]:
         """
         Assign a new task to the worker.
         
@@ -170,7 +170,7 @@ class WorkerManager:
             self._cleanup_task(task_id)
             return False, f"Internal error: {str(e)}"
     
-    def _on_task_completed(self, task_assignment: TaskAssignment, success: bool, result: Any, error: Optional[str]):
+    async def _on_task_completed(self, task_assignment: TaskAssignment, success: bool, result: Any, error: Optional[str]):
         """
         Callback function called when a task completes.
         
@@ -199,6 +199,7 @@ class WorkerManager:
                 self.data_cache.add_cache_entry(output_data_info.data_id, entry)
             self.logger.info(f"adding output data to cache manager")
             #TODO: Report task completion to master
+            await self.master_client.task_complete(task_assignment.task_id)
             self.logger.info(f"reporting task completion to master")
         else:
             self.logger.error(f"Task {task_assignment.task_id} failed - Error: {error}")
@@ -246,7 +247,10 @@ class WorkerManager:
             self.logger.warning(f"Task {data_notification.task_id} not found")
             return False, f"Task {data_notification.task_id} not found"
         
+        is_on_master = data_notification.ip_address == self.config.master_ip_address \
+            and data_notification.port == self.config.master_port
 
+        self.logger.info(f"data {data_notification.data_id} is_on_master: {is_on_master}")
         #TODO: fix this, ip and port shouldn't be passed, we should get it from token
         task.required_data_status[data_notification.data_id].outsite_status = DataMetadata(
             data_id=data_notification.data_id,
@@ -254,7 +258,7 @@ class WorkerManager:
             ip_address=data_notification.ip_address,
             port=data_notification.port,
             hash=data_notification.hash,
-            is_on_master=False,
+            is_on_master=is_on_master,
             task_id=data_notification.task_id
         )
 

@@ -80,7 +80,7 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
             context.set_details(f"Internal error: {str(e)}")
             return worker_pb2.WorkerStatus()
     
-    def AssignTask(self, request: TaskAssignment, context: grpc.ServicerContext) -> common_pb2.StatusResponse:
+    async def AssignTask(self, request: TaskAssignment, context: grpc.ServicerContext) -> common_pb2.StatusResponse:
         """
         Assign a new task to the worker.
         
@@ -96,7 +96,7 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
             self.logger.info(f"AssignTask called for task {task_id}")
             
             # Delegate to worker manager
-            success, message = self.worker_manager.assign_task(request)
+            success, message = await self.worker_manager.assign_task(request)
             
             # Create status response
             response = common_pb2.StatusResponse(
@@ -197,7 +197,7 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
             DataChunk proto messages with data chunks
         """
         try:
-            data_id = request.id
+            data_id = request.data_id
             self.logger.debug(f"StreamData called for data {data_id}")
             
             # Get data from cache

@@ -15,6 +15,8 @@ class Config:
     # Network settings
     listen_port: int = 12345
     master_address: str = "192.168.1.7:12345"
+    master_ip_address: str = "192.168.1.7"
+    master_port: int = 12345
     
     # Resource limits
     max_concurrent_tasks: int = 1

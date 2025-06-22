@@ -8,6 +8,7 @@ service MasterService {
   rpc NodeRegister(NodeRegisterRequest) returns (NodeRegisterResponse);
   rpc TaskComplete(TaskCompleteRequest) returns (project_common.StatusResponse);
   rpc NodeUnregister(NodeUnregisterRequest) returns (project_common.StatusResponse);
+  rpc StreamData(project_common.DataIdentifier) returns (stream project_common.DataChunk);
   // rpc NodeHeartbeat(NodeHeartbeatRequest) returns (NodeHeartbeatResponse);
   // rpc JobFailed(JobFailedRequest) returns (JobFailedResponse);
 
@@ -39,7 +40,6 @@ message MasterDataNotification {
 
 message TaskCompleteRequest {
     int64 task_id = 1;
-    repeated MasterDataNotification data_notifications = 2;
 }
 
 

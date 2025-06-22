@@ -21,6 +21,7 @@ message FileIdentifier {
   int64 id = 1;
 }
 
+//Don't change this before consulting with abqr
 // Metadata about data before streaming
 message DataMetadata {
   int64 data_id = 1;
