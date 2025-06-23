@@ -13,9 +13,9 @@ class Config:
     worker_id: str = "worker_001"
     
     # Network settings
-    listen_port: int = 12345
-    master_address: str = "192.168.1.7:12345"
-    master_ip_address: str = "192.168.1.7"
+    listen_port: int = 50000
+    master_address: str = "localhost:12345"
+    master_ip_address: str = "localhost"
     master_port: int = 12345
     
     # Resource limits

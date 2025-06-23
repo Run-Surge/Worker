@@ -31,7 +31,7 @@ def parse_arguments():
     parser.add_argument(
         '--port', 
         type=int, 
-        default=50051,
+        default=None,
         help='Port to listen on (default: 50051)'
     )
     
@@ -89,8 +89,8 @@ def create_config(args) -> Config:
     # Override with command-line arguments
     if args.worker_id:
         config.worker_id = args.worker_id
-    
-    config.listen_port = args.port
+    if args.port:
+        config.listen_port = args.port
     if args.master_address:
         config.master_address = args.master_address
         config.master_ip_address, config.listen_port = args.master_address.split(':')

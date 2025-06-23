@@ -15,6 +15,7 @@ import traceback
 
 class MasterClient:
     def __init__(self, config: Config):
+        print(f'master_address {config.master_address}')
         self.master_address = config.master_address
         self.shared_dir = config.shared_dir
         self.logger = setup_logging(config.log_level)
@@ -109,11 +110,13 @@ class MasterClient:
     async def register_worker(self, config: Config):
         async with self._get_master_stub() as stub:
             try:
+                print(f'registering with port {config.listen_port}')
                 response = await stub.NodeRegister(master_pb2.NodeRegisterRequest(
                     username=config.username,
                     password=config.password,
                     machine_fingerprint=security_manager.get_machine_fingerprint(),
-                    memory_bytes=config.memory_mb*1024*1024 #1GB
+                    memory_bytes=config.memory_mb*1024*1024, #1GB
+                    port=config.listen_port
                 ))
                 config.worker_id = response.node_id
                 return response
