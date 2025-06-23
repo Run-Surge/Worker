@@ -38,7 +38,7 @@ def parse_arguments():
     parser.add_argument(
         '--master-address', 
         type=str, 
-        default='localhost:12345',
+        default=None,
         help='Address of the master node (default: localhost:12345)'
     )
     
@@ -91,7 +91,9 @@ def create_config(args) -> Config:
         config.worker_id = args.worker_id
     
     config.listen_port = args.port
-    config.master_address = args.master_address
+    if args.master_address:
+        config.master_address = args.master_address
+        config.master_ip_address, config.listen_port = args.master_address.split(':')
     config.max_concurrent_tasks = args.max_tasks
     config.log_level = args.log_level
     config.cache_size_limit_mb = args.cache_size_mb
