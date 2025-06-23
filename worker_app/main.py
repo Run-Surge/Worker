@@ -65,10 +65,10 @@ def parse_arguments():
     )
     
     parser.add_argument(
-        '--memory-mb', 
+        '--memory-bytes', 
         type=int, 
         default=None,
-        help='Amount of memory in MB to use (default: auto-detect)'
+        help='Amount of memory in bytes to use (default: auto-detect)'
     )
     
     parser.add_argument(
@@ -100,8 +100,9 @@ def create_config(args) -> Config:
     
     if args.cpu_cores:
         config.cpu_cores = args.cpu_cores
-    if args.memory_mb:
-        config.memory_mb = args.memory_mb
+    if args.memory_bytes:
+        config.memory_bytes = args.memory_bytes
+    print(f'memory_bytes {config.memory_bytes}')
     
     return config
 

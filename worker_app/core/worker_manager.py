@@ -43,7 +43,7 @@ class WorkerManager:
         self.startup_time = time.time()
         
         # Resource management
-        self.resource_pool = ResourcePool(config.cpu_cores, config.memory_mb)
+        self.resource_pool = ResourcePool(config.cpu_cores, config.memory_bytes)
         
         # Task management
         self.active_tasks: Dict[str, TaskContext] = {}
@@ -61,7 +61,7 @@ class WorkerManager:
         self.state = WorkerState.IDLE
         self.logger.info(f"WorkerManager initialized for worker {self.worker_id}")
         self.logger.info(f"Resource pool: {self.resource_pool.total_cpu_cores} CPU cores, "
-                        f"{self.resource_pool.total_memory_mb:.1f}MB memory")
+                        f"{self.resource_pool.total_memory_bytes} bytes memory")
     
     def can_accept_task(self, task_assignment: TaskAssignment) -> Tuple[bool, str]:
         """
@@ -137,7 +137,7 @@ class WorkerManager:
         try:
             with self.task_lock:
                 # Allocate resources
-                if not self.resource_pool.allocate_resources(task_id, cpu_cores=1.0, memory_mb=1024):
+                if not self.resource_pool.allocate_resources(task_id, cpu_cores=1.0, memory_bytes=1024*1024*1024):
                     return False, "Failed to allocate resources"
                 self.logger.info(f"Allocated resources for task {task_id}")
                 # Create task context

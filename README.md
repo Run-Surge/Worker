@@ -46,7 +46,7 @@ The worker node supports the following command-line arguments:
 | `--max-jobs` | integer | 1 | Maximum number of concurrent jobs |
 | `--log-level` | string | INFO | Logging level (DEBUG, INFO, WARNING, ERROR) |
 | `--cpu-cores` | integer | auto-detect | Number of CPU cores to use |
-| `--memory-mb` | int | auto-detect | Amount of memory in MB to use |
+| `--memory-bytes` | int | auto-detect | Amount of memory in bytes to use |
 | `--cache-size-mb` | int | 2048 | Data cache size limit in MB |
 
 Example usage with custom arguments:
@@ -58,7 +58,7 @@ python -m src.worker_app.main \
     --max-jobs 2 \
     --log-level DEBUG \
     --cpu-cores 4 \
-    --memory-mb 4096 \
+    --memory-bytes 4294967296 \
     --cache-size-mb 1024
 ```
 

@@ -46,7 +46,7 @@ class CacheManager:
     def _initialize_cache(self):
         """Initialize cache tracking."""
         self.cache_entries: Dict[int, CacheEntry] = {}
-        self._add_dummy_data()
+        # self._add_dummy_data()
         self.total_size_bytes = 0
         
         os.makedirs(self.cache_dir, exist_ok=True)

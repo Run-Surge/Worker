@@ -159,7 +159,7 @@ class TaskProcessor:
             
             # Step 2: Fetch required data
             task_context.status = TaskStatus.FETCHING_DATA
-            await self._fetch_required_data(task_context.required_data_status)
+            await self._fetch_required_data(task_context.required_data_status, task_context)
             
             # Step 3: Execute the task
             task_context.status = TaskStatus.EXECUTING
@@ -182,7 +182,7 @@ class TaskProcessor:
             await completion_callback(task_context.task_assignment, False, None, str(e))
     
     
-    async def _fetch_required_data(self, required_data_status: dict[str, TaskDataInfo]):
+    async def _fetch_required_data(self, required_data_status: dict[str, TaskDataInfo], task_context: TaskContext):
         """
         Fetch required data from cache or other workers/master.
         This waits for a notification from the master that the data is ready.
@@ -199,7 +199,7 @@ class TaskProcessor:
                         continue
                     
                     if data_info.outsite_status is None:
-                        self.logger.debug(f"Waiting for data {data_id} to be ready")
+                        self.logger.debug(f"Waiting for data {data_id} in task {task_context.task_id} to be ready")
                         continue
                     self.logger.debug(f"Streaming data {data_id} from {data_info.outsite_status.ip_address}:{data_info.outsite_status.port}")
                     data_path = await self.master_client.stream_data(data_info.outsite_status)

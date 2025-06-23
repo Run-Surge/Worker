@@ -111,11 +111,12 @@ class MasterClient:
         async with self._get_master_stub() as stub:
             try:
                 print(f'registering with port {config.listen_port}')
+                print(f'registering with memory {config.memory_bytes}')
                 response = await stub.NodeRegister(master_pb2.NodeRegisterRequest(
                     username=config.username,
                     password=config.password,
                     machine_fingerprint=security_manager.get_machine_fingerprint(),
-                    memory_bytes=config.memory_mb*1024*1024, #1GB
+                    memory_bytes=config.memory_bytes,
                     port=config.listen_port
                 ))
                 config.worker_id = response.node_id
