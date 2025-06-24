@@ -185,10 +185,11 @@ class WorkerManager:
         if success:
             self.logger.info(f"Task {task_assignment.task_id} completed - Success: {success}")
             #TODO: add output data to cache manager
+            self.logger.debug(f"{len(task_assignment.output_data_infos)} output data infos")
             for output_data_info in task_assignment.output_data_infos:
                 data_path = create_data_path(
                     self.config.shared_dir,
-                    output_data_info.data_id,
+                    task_assignment.task_id,
                     output_data_info.data_name
                 )
 

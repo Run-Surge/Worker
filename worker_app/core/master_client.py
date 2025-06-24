@@ -67,12 +67,16 @@ class MasterClient:
         
         if os.path.exists(data_path):
             raise Exception(f"File {data_path} already exists")
-
-        with open(data_path, 'wb') as f:
+        
+        temp_path = data_path + '.temp'
+        with open(temp_path, 'wb') as f:
             async for chunk in response_iterator:
                 f.write(chunk.chunk_data)
                 if chunk.is_last_chunk:
                     break
+                    
+        self.logger.debug(f'renaming {temp_path} to {data_path}')
+        os.rename(temp_path, data_path)
 
         return data_path
             

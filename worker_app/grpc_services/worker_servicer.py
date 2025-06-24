@@ -216,7 +216,7 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
             
             # Stream data in chunks
             chunk_size = 1 * 1024 * 1024  # 1MB chunks
-            total_size = int(cached_data.size_bytes)
+            total_size = os.path.getsize(cached_data.path)
             bytes_sent = 0
             
             self.logger.debug(f"Streaming data {data_id}, total size: {format_bytes(total_size)}")

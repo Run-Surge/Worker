@@ -156,15 +156,20 @@ class TaskProcessor:
                 task_assignment.python_file_name
                 )
 
-            
-            # Step 2: Fetch required data
-            task_context.status = TaskStatus.FETCHING_DATA
-            await self._fetch_required_data(task_context.required_data_status, task_context)
-            
             # Step 3: Execute the task
             task_context.status = TaskStatus.EXECUTING
             result = await self._execute_python_code(task_assignment, python_script_path)
             
+
+            # Step 2: Fetch required data
+            task_context.status = TaskStatus.FETCHING_DATA
+            await self._fetch_required_data(task_context.required_data_status, task_context)
+            
+            #TODO: This is a hack to wait for the python code to finish executing
+            self.logger.debug(f"sleeping for 5 seconds to wait for python code to finish executing")
+            await asyncio.sleep(5)
+            
+            self.logger.debug(f"Python code finished executing")
             # Step 4: Handle result
             task_context.result = result
             task_context.status = TaskStatus.COMPLETED
@@ -233,8 +238,6 @@ class TaskProcessor:
         
         try:
             # For now, simulate code execution
-            time.sleep(1)  # Simulate computation time
-            
             # In a real implementation, this would:
             # 1. Create a safe execution environment
             # 2. Execute the Python code with input_data
@@ -249,12 +252,7 @@ class TaskProcessor:
                     # Run the Python file and capture output
                     self.logger.debug(f"Running Python file: {script_path}")
                     self.logger.debug(f"Current directory: {os.getcwd()}")
-                    result = subprocess.run([sys.executable, os.path.basename(script_path)], 
-                                        capture_output=True,
-                                        text=True)
-                    
-                    # Check the output contains the expected text
-                    self.logger.info(f"Result: {result.stdout}, length: {len(result.stdout)}")
+                    result = subprocess.Popen([sys.executable, os.path.basename(script_path)])                    
 
                 finally:
                     # Restore original directory
