@@ -13,6 +13,7 @@ from protos.worker_pb2 import TaskAssignment, DataNotification
 from protos.common_pb2 import DataMetadata
 from .master_client import MasterClient
 from ..utils.util import create_data_path
+from ..vm.vm import VMTaskExecutor
 
 class WorkerState(Enum):
     """Worker states matching the proto definition."""
@@ -52,17 +53,39 @@ class WorkerManager:
         # Components
         self.data_cache = CacheManager(config)
         self.master_client = MasterClient(config)
-        self.task_processor = TaskProcessor(config, self.data_cache, self.worker_id, self.master_client)
+        self.vm_executor = VMTaskExecutor(
+            disk_image=config.disk_image,
+            memory=config.memory_bytes,
+            cpus=config.cpu_cores,
+            vm_startup_timeout=config.vm_startup_timeout,
+            shared_folder_host=os.path.abspath(config.shared_dir),
+            shared_folder_guest="/mnt/win",
+        )
+        self.task_processor = TaskProcessor(config, self.data_cache, self.worker_id, self.master_client, self.vm_executor)
         
         # Initialize directories
         config.ensure_directories()
         
         # Complete initialization
+        self._initialize_vm()
         self.state = WorkerState.IDLE
+        self.logger.info(f"VM state: {self.vm_executor.get_vm_status()}")
         self.logger.info(f"WorkerManager initialized for worker {self.worker_id}")
         self.logger.info(f"Resource pool: {self.resource_pool.total_cpu_cores} CPU cores, "
                         f"{self.resource_pool.total_memory_bytes} bytes memory")
-    
+
+    def _initialize_vm(self):
+        if self.config.start_vm_on_startup:
+            result = self.vm_executor.launch_vm()
+            if not result:
+                self.logger.error("Failed to launch VM")
+            raise Exception("Failed to launch VM")
+        else:
+            self.logger.info("Starting VM on startup is disabled, establishing SSH connection")
+            self.vm_executor.vm_running = True
+            self.vm_executor.establish_ssh_connection()
+            self.logger.info("SSH connection established")
+
     def can_accept_task(self, task_assignment: TaskAssignment) -> Tuple[bool, str]:
         """
         Check if worker can accept a new task.

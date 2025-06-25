@@ -1,0 +1,2 @@
+cd C:\Program Files\qemu\ 
+qemu-system-x86_64.exe -m 2048 -smp 2 -cpu qemu64 -accel tcg -net nic -net user,hostfwd=tcp::2222-:22 -hda "E:\CUFE\4thYear\GP\Worker\worker_app\vm\RunSugre-VM.qcow2" -display none -nographic

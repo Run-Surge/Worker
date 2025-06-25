@@ -15,6 +15,7 @@ from ..utils.logging_setup import setup_logging
 from .master_client import MasterClient
 import subprocess
 import sys
+from ..vm.vm import VMTaskExecutor
 
 class TaskStatus(Enum):
     """Task execution status."""
@@ -45,7 +46,7 @@ class TaskContext:
     error: Optional[str]
     cpu_allocated: float
     memory_allocated: float
-    
+    pid: Optional[int]
     def __post_init__(self):
         if self.thread is None:
             self.thread = None
@@ -59,11 +60,12 @@ class TaskProcessor:
     TODO: Implement actual Python code execution, file fetching, and result handling.
     """
     
-    def __init__(self, config: Config, data_cache: CacheManager, worker_id: str, master_client: MasterClient):
+    def __init__(self, config: Config, data_cache: CacheManager, worker_id: str, master_client: MasterClient, vm_executor: VMTaskExecutor):
         self.config = config
         self.data_cache = data_cache
         self.worker_id = worker_id
         self.master_client = master_client
+        self.vm_executor = vm_executor
         self.logger = setup_logging(config.log_level)
     
     def create_task_context(self, task_assignment: TaskAssignment, cpu_allocated: float = 1.0, memory_allocated: float = 1.0) -> TaskContext:
@@ -85,7 +87,8 @@ class TaskProcessor:
             result=None,
             error=None,
             cpu_allocated=cpu_allocated,
-            memory_allocated=memory_allocated
+            memory_allocated=memory_allocated,
+            pid=None
         )
     
     def start_task(self, task_context: TaskContext, completion_callback) -> bool:
@@ -127,6 +130,7 @@ class TaskProcessor:
         """
         self.logger.debug(f"Storing Python script: {file_name}")
         file_path = os.path.join(self.config.cache_dir, str(task_id), file_name)
+        linux_file_path = f'/mnt/win/{str(task_id)}/{file_name}'
         os.makedirs(os.path.dirname(file_path), exist_ok=True)
         try:
             with open(file_path, "wb") as f:
@@ -135,7 +139,7 @@ class TaskProcessor:
             self.logger.error(f"Failed to store Python script: {e}")
             raise
 
-        return file_path
+        return file_path, linux_file_path
 
     def _execute_task(self, task_context: TaskContext, completion_callback):
         """Execute the task in the current thread."""
@@ -150,7 +154,7 @@ class TaskProcessor:
             # Step 1: Fetch Python script
             task_assignment = task_context.task_assignment
             task_context.status = TaskStatus.FETCHING_FILES
-            python_script_path = self._store_python_script(
+            python_script_path, linux_python_script_path = self._store_python_script(
                 task_assignment.python_file,
                 task_context.task_id,
                 task_assignment.python_file_name
@@ -158,14 +162,15 @@ class TaskProcessor:
 
             # Step 3: Execute the task
             task_context.status = TaskStatus.EXECUTING
-            result = await self._execute_python_code(task_assignment, python_script_path)
-            
+            result, pid = await self._execute_python_code(task_assignment, linux_python_script_path)
+            task_context.pid = pid
 
             # Step 2: Fetch required data
             task_context.status = TaskStatus.FETCHING_DATA
             await self._fetch_required_data(task_context.required_data_status, task_context)
             
             #TODO: This is a hack to wait for the python code to finish executing
+            #TODO: check memory usage using ssh connection, will be used to check if the python code is finished executing
             self.logger.debug(f"sleeping for 5 seconds to wait for python code to finish executing")
             await asyncio.sleep(5)
             
@@ -234,44 +239,26 @@ class TaskProcessor:
         
         TODO: invoke VM to execute the python code using the python script path. (it should know data file names, path by itself)
         """
-        self.logger.debug("Executing Python code")
+        self.logger.debug(f"Executing Python code in path {python_script_path}")
+        pid = self.vm_executor.execute_script(python_script_path)
+       
+        if pid is None:
+            self.logger.error(f"Failed to execute Python code")
+            raise Exception("Failed to execute Python code")
         
-        try:
-            # For now, simulate code execution
-            # In a real implementation, this would:
-            # 1. Create a safe execution environment
-            # 2. Execute the Python code with input_data
-            # 3. Capture and return the result
-            
-            def test_run_python_file(script_path: str):
-                # Ensure we're in the correct directory
-                original_dir = os.getcwd()
-                os.chdir(os.path.dirname(script_path))
+        self.logger.debug(f"Python code executed with PID: {pid}")
+        
+        # Simulate processing result
+        #TODO: get the result from the python code
+        result = {
+            "status": "success",
+            "processed_data": f"Processed: {task_assignment.required_data_ids}",
+            "execution_time": 1.0,
+            "worker_id": self.worker_id
+        }
 
-                try:
-                    # Run the Python file and capture output
-                    self.logger.debug(f"Running Python file: {script_path}")
-                    self.logger.debug(f"Current directory: {os.getcwd()}")
-                    result = subprocess.Popen([sys.executable, os.path.basename(script_path)])                    
-
-                finally:
-                    # Restore original directory
-                    os.chdir(original_dir)
-
-            test_run_python_file(python_script_path)
-            # Simulate processing result
-            result = {
-                "status": "success",
-                "processed_data": f"Processed: {task_assignment.required_data_ids}",
-                "execution_time": 1.0,
-                "worker_id": self.worker_id
-            }
-            
-            return result
-            
-        except Exception as e:
-            self.logger.error(f"Code execution failed: {e}")
-            raise
+        return result, pid
+                
     
     def get_task_info(self, task_context: TaskContext) -> Dict[str, Any]:
         """Get information about a task."""

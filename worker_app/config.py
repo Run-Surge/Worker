@@ -21,7 +21,7 @@ class Config:
     # Resource limits
     max_concurrent_tasks: int = 1
     cpu_cores: Optional[int] = 1  # Auto-detect if None
-    memory_bytes: Optional[int] = (1800)  # Auto-detect if None (bytes)
+    memory_bytes: Optional[int] = (9000)  # Auto-detect if None (bytes)
     
     # Task execution settings
     task_timeout_seconds: int = 300  # 5 minutes
@@ -33,6 +33,11 @@ class Config:
     # Logging
     log_level: str = "INFO"
     
+    # VM settings
+    disk_image: str = './worker_app/vm/RunSugre-VM.qcow2'
+    vm_startup_timeout: int = 90
+    start_vm_on_startup: bool = False
+    
     # Directories
     temp_dir: str = os.path.join('.', 'temp', 'worker_data')
     cache_dir: str = os.path.join('.', 'worker_app', 'vm', 'shared')
@@ -40,6 +45,7 @@ class Config:
 
     username: str = "nourr"
     password: str = "123456"
+    
     
     @classmethod
     def from_env(cls) -> 'Config':

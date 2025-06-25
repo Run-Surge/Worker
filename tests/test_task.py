@@ -19,7 +19,7 @@ def create_data_notification(task_id: int, data_id: int):
 
 def create_task_assignment():
     return TaskAssignment(
-        task_id=30,
+        task_id=50,
         python_file=b"""
 print("Manga")
     """,
