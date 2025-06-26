@@ -283,7 +283,8 @@ class WorkerManager:
             port=data_notification.port,
             hash=data_notification.hash,
             is_on_master=is_on_master,
-            task_id=data_notification.task_id
+            task_id=data_notification.task_id,
+            is_zipped=data_notification.is_zipped
         )
 
         #TODO: download file from here instead of having a thread wait for it

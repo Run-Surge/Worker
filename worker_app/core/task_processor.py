@@ -160,14 +160,17 @@ class TaskProcessor:
                 task_assignment.python_file_name
                 )
 
+
+            # Step 2: Fetch required data
+            task_context.status = TaskStatus.FETCHING_DATA
+            await self._fetch_required_data(task_context.required_data_status, task_context)
+            
             # Step 3: Execute the task
             task_context.status = TaskStatus.EXECUTING
             result, pid = await self._execute_python_code(task_assignment, linux_python_script_path)
             task_context.pid = pid
 
-            # Step 2: Fetch required data
-            task_context.status = TaskStatus.FETCHING_DATA
-            await self._fetch_required_data(task_context.required_data_status, task_context)
+            
             
             #TODO: This is a hack to wait for the python code to finish executing
             #TODO: check memory usage using ssh connection, will be used to check if the python code is finished executing

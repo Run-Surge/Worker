@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 from ..utils.security import security_manager
 import traceback
+import zipfile
 
 class MasterClient:
     def __init__(self, config: Config):
@@ -74,9 +75,14 @@ class MasterClient:
                 f.write(chunk.chunk_data)
                 if chunk.is_last_chunk:
                     break
-                    
-        self.logger.debug(f'renaming {temp_path} to {data_path}')
-        os.rename(temp_path, data_path)
+    
+        if data_metadata.is_zipped:
+            self.logger.debug(f'unzipping {temp_path} to {data_path}')
+            with zipfile.ZipFile(temp_path, 'r') as zip_ref:
+                zip_ref.extractall(os.path.dirname(data_path))
+        else:
+            self.logger.debug(f'renaming {temp_path} to {data_path}')
+            os.rename(temp_path, data_path)
 
         return data_path
             
