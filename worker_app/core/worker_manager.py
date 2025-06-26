@@ -55,7 +55,7 @@ class WorkerManager:
         self.master_client = MasterClient(config)
         self.vm_executor = VMTaskExecutor(
             disk_image=config.disk_image,
-            memory=config.memory_bytes,
+            memory_bytes=config.memory_bytes,
             cpus=config.cpu_cores,
             vm_startup_timeout=config.vm_startup_timeout,
             shared_folder_host=os.path.abspath(config.shared_dir),
@@ -79,7 +79,7 @@ class WorkerManager:
             result = self.vm_executor.launch_vm()
             if not result:
                 self.logger.error("Failed to launch VM")
-            raise Exception("Failed to launch VM")
+                raise Exception("Failed to launch VM")
         else:
             self.logger.info("Starting VM on startup is disabled, establishing SSH connection")
             self.vm_executor.vm_running = True
@@ -266,6 +266,7 @@ class WorkerManager:
     def notify_data(self, data_notification: DataNotification) -> Tuple[bool, str]:
         """Notify the worker that data is available."""
         self.logger.debug(f"NotifyData called for data {data_notification.data_id}")
+        self.logger.debug(f"Data notification: {data_notification}")
         task = self.active_tasks.get(data_notification.task_id)
         if not task:
             self.logger.warning(f"Task {data_notification.task_id} not found")
@@ -295,7 +296,28 @@ class WorkerManager:
         """Gracefully shutdown the worker."""
         self.logger.info("Worker shutdown initiated")
         self.state = WorkerState.SHUTTING_DOWN
-        
+        self.vm_executor.stop_vm()
+        # Kill all OS processes spawned by this worker
+        import psutil
+        current_process = psutil.Process()
+        children = current_process.children(recursive=True)
+        print(f"Children: {children}")
+        with open("children.txt", "w") as f:
+                f.write(f"current process: {current_process.pid}\n")
+                f.write(f"children: {children}\n")
+        for child in children:
+            self.logger.info(f"Terminating process {child.pid}")
+            try:
+                child.terminate()  # Try graceful termination first
+                try:
+                    child.wait(timeout=5)  # Wait up to 5 seconds
+                except psutil.TimeoutExpired:
+                    self.logger.warning(f"Process {child.pid} did not terminate gracefully, forcing kill")
+                    child.kill()  # Force kill if process doesn't respond to terminate
+            except psutil.NoSuchProcess:
+                pass  # Process already terminated
+            except Exception as e:
+                self.logger.error(f"Error killing process {child.pid}: {e}")
         # TODO: Wait for active tasks to complete or terminate them
         # TODO: Cleanup resources
         # TODO: Notify master of shutdown

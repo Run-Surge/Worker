@@ -9,6 +9,11 @@ import colorsys
 import os
 import ctypes
 import webbrowser
+import requests
+import subprocess
+import signal
+import sys
+from worker_app.config import Config
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -37,7 +42,12 @@ class ToolkitApp(ctk.CTk):
         self.geometry(f"{width}x{height}+{x}+{y}")
 
         self.logined = False
-
+        self.username = None
+        self.password = None
+        self.memory_size = 1024 * 1024 * 1024
+        self.memory_unit = "GB"
+        self.child_process = None
+        
         original_logo = Image.open("assets/images/logo.png").convert("RGBA")
         size = int(max(original_logo.size) * 1.3)
         circle_bg = Image.new("RGBA", (size, size), (255, 255, 255, 0))
@@ -86,6 +96,16 @@ class ToolkitApp(ctk.CTk):
         resized_image = self.logo_image.resize((150, 150), Image.Resampling.LANCZOS)
         self.tk_image = ctk.CTkImage(light_image=resized_image, dark_image=resized_image, size=(150, 150))
         self.logo_label.configure(image=self.tk_image)
+    def validate_integer(self, value):
+        """Validate that input is a positive integer or empty string"""
+        if value == "":
+            return True  # Allow empty string for deletion
+        try:
+            int_value = int(value)
+            return int_value > 0  # Only allow positive integers
+        except ValueError:
+            return False
+
     def shake_widget(self, widget):
         original_x = widget.winfo_x()
         original_y = widget.winfo_y()
@@ -103,12 +123,28 @@ class ToolkitApp(ctk.CTk):
         widget.place(x=original_x, y=original_y)
         move([-5, 5, -4, 4, -3, 3, -2, 2, 0])
 
+    
 
     def try_login(self):
         username = self.username_entry.get()
         password = self.password_entry.get()
-        if username == "admin" and password == "1234":
+        def _login(username: str, password: str) -> bool:
+            url = f"http://{Config.master_ip_address}:{Config.maseter_backend_port}/api/auth/login"
+            print(url)
+            response = requests.post(
+                url,
+                json={
+                    "username_or_email": username,
+                    "password": password
+                }
+            )
+            print(response.json())
+            return response.status_code == 200
+        
+        if _login(username, password):
             self.logined = True
+            self.username = username
+            self.password = password
             self.login_frame.destroy()
             self.setup_main_ui()
         else:
@@ -145,12 +181,19 @@ class ToolkitApp(ctk.CTk):
         resource_frame = ctk.CTkFrame(self, fg_color="transparent")
         resource_frame.pack(pady=5)
 
-        self.value_spinbox = ctk.CTkEntry(resource_frame, justify="center", width=100, state="normal", font=self.bold_font)
+        # Register validation function
+        vcmd = (self.register(self.validate_integer), '%P')
+        
+        self.value_spinbox = ctk.CTkEntry(resource_frame, justify="center", width=100, state="normal", font=self.bold_font, validate='key', validatecommand=vcmd)
         self.value_spinbox.insert(0, "1")
         self.value_spinbox.grid(row=0, column=0, padx=10)
-
-        self.unit_combobox = ctk.CTkComboBox(resource_frame, values=["MB", "GB"], state="normal", width=100, font=self.bold_font)
-        self.unit_combobox.set("MB")
+        def _on_unit_change(value):
+            self.memory_unit = value
+            self.memory_size = int(self.value_spinbox.get()) * 1024 * 1024 if self.memory_unit == "MB" \
+              else int(float(self.value_spinbox.get())) * 1024 * 1024 * 1024
+            
+        self.unit_combobox = ctk.CTkComboBox(resource_frame, values=["MB", "GB"], state="normal", width=100, font=self.bold_font,command=_on_unit_change)
+        self.unit_combobox.set("GB")
         self.unit_combobox.grid(row=0, column=1, padx=10)
 
         self.flash_canvas_width = 400
@@ -160,7 +203,7 @@ class ToolkitApp(ctk.CTk):
         self.particles = []
         self.animate_particles()
 
-        username = getpass.getuser()
+        username = self.username
         balance_amount = "125.00"
         user_balance_frame = ctk.CTkFrame(self, fg_color="transparent")
         user_balance_frame.pack(side="bottom", pady=(10, 0))
@@ -172,6 +215,9 @@ class ToolkitApp(ctk.CTk):
 
         self.app_state = "Idle"
         self.is_active = False
+        
+        # Start periodic process monitoring
+        self.monitor_process()
 
     def toggle_state(self):
         if not self.is_active:
@@ -179,12 +225,125 @@ class ToolkitApp(ctk.CTk):
         else:
             threading.Thread(target=self.stop_sequence, daemon=True).start()
 
+
+    def _launch_vm_directly(self) -> bool:
+        """
+        Launch VM directly as a subprocess of Python.
+        """
+        try:
+            print("Launching VM directly...")
+
+            cmd_list = [
+                "venv/Scripts/python.exe",
+                "main.py",
+                "--username",
+                self.username,
+                "--password", 
+                self.password,
+                "--memory-bytes",
+                str(self.memory_size)
+            ]
+
+
+            creation_flags = 0
+            if os.name == 'nt': # If running on Windows
+                # CREATE_NEW_PROCESS_GROUP makes the child process the root of a new process group.
+                # When the parent dies, the OS can clean up this group more effectively.
+                # It often works in conjunction with job objects for robust cleanup.
+                creation_flags |= subprocess.CREATE_NEW_PROCESS_GROUP
+                creation_flags |= subprocess.CREATE_NO_WINDOW # To prevent console window pop-up
+
+            print(cmd_list)
+            self.child_process = subprocess.Popen(
+                cmd_list,
+                # Use shell=True for Windows compatibility like the batch method
+                shell=False,
+                creationflags=creation_flags,
+                # Don't capture QEMU output - let it run freely
+                stdout=None,
+                stderr=None
+            )
+            self.logger.info(f"VM process (PID: {self.vm_process.pid}) started directly.")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to launch VM directly: {e}")
+            return False
+
+    def _start_vm(self) -> bool:
+        try:
+            self._launch_vm_directly()
+            # print('child process pid', self.child_process.pid)
+            return True
+        except Exception as e:
+            print(e)
+            return False
+    
+    def _stop_vm(self) -> bool:        
+        try:
+            import psutil
+            current_process = psutil.Process()
+            children = current_process.children(recursive=True)
+            print(f"Children: {children}")
+            for child in children:
+                self.logger.info(f"Terminating process {child.pid}")
+                try:
+                    child.send_signal(signal.SIGTERM)
+                    # child.terminate()  # Try graceful termination first
+                    # child.kill()
+                    # try:
+                    #     # child.wait(timeout=5)  # Wait up to 5 seconds
+                    # except psutil.TimeoutExpired:
+                    #     self.logger.warning(f"Process {child.pid} did not terminate gracefully, forcing kill")
+                    #     child.kill()  # Force kill if process doesn't respond to terminate
+                except psutil.NoSuchProcess:
+                    pass  # Process already terminated
+                except Exception as e:
+                    self.logger.error(f"Error killing process {child.pid}: {e}")
+            # self.child_process.send_signal(signal.SIGTERM)
+            # self.child_process.wait()
+            time.sleep(50)
+            self.child_process = None
+            return True
+        except Exception as e:
+            print(e)
+            return False
+    
+    def check_process_status(self):
+        """Check if the child process is still running when state shows as active"""
+        if self.is_active and self.app_state == "Active" and hasattr(self, 'child_process_pid') and self.child_process:
+            # Check if process has terminated
+            return_code = self.child_process.poll()
+            if return_code is not None:  # Process has terminated
+                print(f"Child process died unexpectedly with return code: {return_code}")
+                # Update UI to reflect the process death
+                self.is_active = False
+                self.set_status("Failed")
+                self.start_button.configure(state="normal", text="Start")
+                self.unit_combobox.configure(state="normal")
+                self.value_spinbox.configure(state="normal")
+                self.child_process = None
+                return False
+        return True
+    
+    def monitor_process(self):
+        """Periodically monitor the child process status"""
+        # self.check_process_status()
+        # # Schedule the next check in 2 seconds
+        # self.after(2000, self.monitor_process)
+    
     def start_sequence(self):
         self.set_status("Activating")
         self.value_spinbox.configure(state="disabled")
         self.unit_combobox.configure(state="disabled")
         self.start_button.configure(state="disabled", text="Starting...")
-        time.sleep(5)
+       
+        self._start_vm()
+        # if not self._start_vm():
+        #     self.set_status("Failed to start VM")
+        #     self.start_button.configure(state="normal", text="Start")
+        #     return
+        
         self.is_active = True
         self.set_status("Active")
         self.start_button.configure(state="normal", text="Stop")
@@ -192,7 +351,9 @@ class ToolkitApp(ctk.CTk):
     def stop_sequence(self):
         self.set_status("Stopping")
         self.start_button.configure(state="disabled", text="Stopping...")
-        time.sleep(5)
+        
+        self._stop_vm()
+        
         self.is_active = False
         self.set_status("Idle")
         self.start_button.configure(state="normal", text="Start")

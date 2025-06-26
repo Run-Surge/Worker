@@ -1,6 +1,7 @@
 # VM files
 shared/
 RunSugre-VM.qcow2
+children.txt
 
 #gRPC generated files
 protos/

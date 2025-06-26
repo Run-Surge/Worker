@@ -94,6 +94,7 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
         try:
             task_id = request.task_id
             self.logger.info(f"AssignTask called for task {task_id}")
+            self.logger.debug(f"Task assignment request: {request}")
             
             # Delegate to worker manager
             success, message = await self.worker_manager.assign_task(request)
@@ -342,6 +343,7 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
         """
         try:
             self.logger.debug(f"NotifyData called for data {request.data_id}")
+            self.logger.debug(f"NotifyData request: {request}")
             
             # Delegate to worker manager
             success, message = self.worker_manager.notify_data(request)

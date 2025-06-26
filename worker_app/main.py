@@ -7,6 +7,7 @@ import threading
 import signal
 import sys
 import time
+import traceback
 from concurrent import futures
 import grpc.aio
 from .config import Config
@@ -78,6 +79,20 @@ def parse_arguments():
         help='Data cache size limit in MB (default: 2048)'
     )
     
+    parser.add_argument(
+        '--username', 
+        type=str, 
+        default=None,
+        help='Username for the worker (default: None)'
+    )
+    
+    parser.add_argument(
+        '--password', 
+        type=str, 
+        default=None,
+        help='Password for the worker (default: None)'
+    )
+
     return parser.parse_args()
 
 
@@ -97,7 +112,10 @@ def create_config(args) -> Config:
     config.max_concurrent_tasks = args.max_tasks
     config.log_level = args.log_level
     config.cache_size_limit_mb = args.cache_size_mb
-    
+    if args.username:
+        config.username = args.username
+    if args.password:
+        config.password = args.password
     if args.cpu_cores:
         config.cpu_cores = args.cpu_cores
     if args.memory_bytes:
@@ -155,7 +173,7 @@ def setup_signal_handlers(server: grpc.Server, worker_manager: WorkerManager, co
     signal.signal(signal.SIGTERM, signal_handler)
 
 
-async def register_with_master(config: Config, server: grpc.Server, logger: logging.Logger):
+async def register_with_master(config: Config, server: grpc.Server, logger: logging.Logger, worker_manager: WorkerManager):
     """Register the worker with the master."""
     try:    
         master_client = MasterClient(config)
@@ -166,6 +184,7 @@ async def register_with_master(config: Config, server: grpc.Server, logger: logg
     except Exception as e:
         # print(f"Failed to register with master: {e}")
         await server.stop(grace=1)
+        worker_manager.shutdown()
         logger.info(f"Closing worker...")
         sys.exit(1)
 
@@ -209,7 +228,7 @@ async def main():
         
 
         #TODO: register the worker with the master 
-        await register_with_master(config, server, logger)
+        await register_with_master(config, server, logger, worker_manager)
         logger.info(f"Worker {config.worker_id} is running and ready to accept tasks")
         logger.info(f"Listening on port {config.listen_port}")
         
@@ -226,5 +245,6 @@ async def main():
             logger.info("Keyboard interrupt received, shutting down...")
             await deregister_from_master(config)
     except Exception as e:
+        print(traceback.format_exc())
         print(f"Failed to start worker: {e}")
         sys.exit(1)
