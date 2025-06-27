@@ -95,7 +95,7 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
             task_id = request.task_id
             self.logger.info(f"AssignTask called for task {task_id}")
             self.logger.debug(f"Task assignment request: {request}")
-            
+            self.logger.debug(f"Task assignment required data ids: {request.required_data_ids}")
             # Delegate to worker manager
             success, message = await self.worker_manager.assign_task(request)
             

@@ -160,7 +160,7 @@ class TaskProcessor:
         start_time = time.time()
         while True:
             await asyncio.sleep(1)
-            memory_usage = self.vm_executor.get_process_memory_usage(pid)
+            memory_usage = self.vm_executor.get_process_memory_usage(pid, str(task_context.task_id))
             if memory_usage is None:
                 task_context.total_time_elapsed = time.time() - start_time
                 self.logger.debug(f"Task {task_context.task_id} total time elapsed: {task_context.total_time_elapsed}")
@@ -177,7 +177,7 @@ class TaskProcessor:
     async def _execute_task_async(self, task_context: TaskContext, completion_callback):
         try:
             self.logger.info(f"Executing task {task_context.task_id}")
-            
+            self.logger.debug(f"Task {task_context.task_id} task context: {task_context}")
             # Step 1: Fetch Python script
             task_assignment = task_context.task_assignment
             task_context.status = TaskStatus.FETCHING_FILES

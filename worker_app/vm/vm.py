@@ -466,7 +466,7 @@ class VMTaskExecutor:
             self.logger.error(f"Failed to execute command '{command}': {e}")
             return None
         
-    def get_process_memory_usage(self, pid: int, timeout: Optional[int] = None) -> Optional[int]:
+    def get_process_memory_usage(self, pid: int, task_id: str, timeout: Optional[int] = None) -> Optional[int]:
         """
         Get the memory usage of a process by PID.
 
@@ -485,21 +485,42 @@ class VMTaskExecutor:
                 self.logger.error(f"Failed to get process memory usage for PID {pid}: {error}")
                 raise Exception(f"Failed to get process memory usage for PID {pid}: {error}")
             elif error:
+                self.check_error_file(f"/mnt/win/{task_id}/error.err")
                 self.logger.info(f"Process has closed, error is {error}")
                 return None
             
             if "python3" not in output:
-                raise Exception("Process is not a Python process")
+                self.logger.error(f"Process is not a Python process: {output}")
+                self.check_error_file(f"/mnt/win/{task_id}/error.err")
+                return None
                 
             print(f"output is {output}")
             memory_usage = int(output.split()[-2]) * 1024 # KiB to B
             return memory_usage
+        except ValueError as e:
+            #sometimes kib doesn't exist, we will assume the task is finished
+            #TODO: look into this maybe do retries
+            self.logger.info(f"Failed to get process memory usage for PID {pid}: {e}")
+            return None
         except Exception as e:
             print(traceback.format_exc())
             self.logger.error(f"Failed to get process memory usage for PID {pid}: {e}")
             raise e
-    
-    
+        
+    def check_error_file(self, path: str):
+        self.logger.info(f"Checking error file {path}")
+        self.establish_ssh_connection()
+        try:
+            command = f"cat {path}"
+            output, error = self._execute_command(command)
+        except Exception as e:
+            self.logger.error(f"Failed to check error file {path}: {e}")
+            return
+        
+        if len(output) > 0:
+            raise Exception(f"python process failed: {output}")
+                
+
     def kill_process(self, pid: int) -> bool:
         self.establish_ssh_connection()
         try:
@@ -511,6 +532,9 @@ class VMTaskExecutor:
             return False
     
     def _execute_command(self, command: str, timeout: Optional[int] = None) -> Tuple[Optional[str], Optional[str]]:
+        """
+        returns (output, error)
+        """
         if not self.vm_running or not self.ssh_client:
             return None, "VM is not running or SSH not connected"
         
