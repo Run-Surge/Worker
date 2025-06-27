@@ -471,7 +471,7 @@ class VMTaskExecutor:
         Get the memory usage of a process by PID.
 
         Returns:
-            tuple: (memory_usage in bytes, error)
+            memory_usage in bytes
         """
         self.establish_ssh_connection()
         try:
@@ -481,19 +481,34 @@ class VMTaskExecutor:
             output = stdout.read().decode('utf-8', errors='ignore')
             error = stderr.read().decode('utf-8', errors='ignore')
             
-            if error:
+            if error and "No such file or directory" not in error:
                 self.logger.error(f"Failed to get process memory usage for PID {pid}: {error}")
-                return None, error
+                raise Exception(f"Failed to get process memory usage for PID {pid}: {error}")
+            elif error:
+                self.logger.info(f"Process has closed, error is {error}")
+                return None
             
             if "python3" not in output:
-                return None, "Process is not a Python process"
+                raise Exception("Process is not a Python process")
+                
             print(f"output is {output}")
-            memory_usage = int(output.split()[-2]) * 1024
-            return memory_usage, None
+            memory_usage = int(output.split()[-2]) * 1024 # KiB to B
+            return memory_usage
         except Exception as e:
             print(traceback.format_exc())
             self.logger.error(f"Failed to get process memory usage for PID {pid}: {e}")
-            return None, str(e)
+            raise e
+    
+    
+    def kill_process(self, pid: int) -> bool:
+        self.establish_ssh_connection()
+        try:
+            command = f"kill -9 {pid}"
+            self._execute_command(command)
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to kill process {pid}: {e}")
+            return False
     
     def _execute_command(self, command: str, timeout: Optional[int] = None) -> Tuple[Optional[str], Optional[str]]:
         if not self.vm_running or not self.ssh_client:
