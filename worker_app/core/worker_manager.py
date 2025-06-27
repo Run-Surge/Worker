@@ -203,6 +203,7 @@ class WorkerManager:
             result: Task result if successful
             error: Error message if failed
         """
+        task_context = self.active_tasks[task_assignment.task_id]
         self._cleanup_task(task_assignment.task_id)
 
         if success:
@@ -223,7 +224,11 @@ class WorkerManager:
                 self.data_cache.add_cache_entry(output_data_info.data_id, entry)
             self.logger.info(f"adding output data to cache manager")
             #TODO: Report task completion to master
-            await self.master_client.task_complete(task_assignment.task_id)
+            await self.master_client.task_complete(
+                task_id=task_assignment.task_id,
+                average_memory_bytes=task_context.average_memory_bytes,
+                total_time_elapsed=task_context.total_time_elapsed
+            )
             self.logger.info(f"reporting task completion to master")
         else:
             self.logger.error(f"Task {task_assignment.task_id} failed - Error: {error}")

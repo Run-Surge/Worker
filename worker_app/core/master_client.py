@@ -148,10 +148,14 @@ class MasterClient:
                 self.logger.error(f"Failed to deregister worker: {e}")
                 raise
 
-    async def task_complete(self, task_id: int):
+    async def task_complete(self, task_id: int, average_memory_bytes: int, total_time_elapsed: float):
         async with self._get_master_stub() as stub:
             try:
-                response = await stub.TaskComplete(master_pb2.TaskCompleteRequest(task_id=task_id))
+                response = await stub.TaskComplete(master_pb2.TaskCompleteRequest(
+                    task_id=task_id,
+                    average_memory_bytes=average_memory_bytes,
+                    total_time_elapsed=total_time_elapsed
+                ))
                 return response
             except Exception as e:
                 self.logger.error(f"Failed to complete task: {e}")

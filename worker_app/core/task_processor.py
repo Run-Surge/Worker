@@ -51,6 +51,7 @@ class TaskContext:
     task_timeout: Optional[float] = 7200 # seconds
     memory_usage_total: Optional[float] = 0
     total_time_elapsed: Optional[float] = 0
+    average_memory_bytes: Optional[int] = 0
     def __post_init__(self):
         if self.thread is None:
             self.thread = None
@@ -163,8 +164,10 @@ class TaskProcessor:
             memory_usage = self.vm_executor.get_process_memory_usage(pid, str(task_context.task_id))
             if memory_usage is None:
                 task_context.total_time_elapsed = time.time() - start_time
+                task_context.average_memory_bytes = int(task_context.memory_usage_total / task_context.total_time_elapsed)
                 self.logger.debug(f"Task {task_context.task_id} total time elapsed: {task_context.total_time_elapsed}")
-                self.logger.debug(f"Task {task_context.task_id} average memory usage: {format_bytes(task_context.memory_usage_total / task_context.total_time_elapsed)}")
+                self.logger.debug(f"Task {task_context.task_id} average memory usage: {format_bytes(task_context.average_memory_bytes)}")
+                self.logger.debug(f"Task {task_context.task_id} memory usage total: {format_bytes(task_context.memory_usage_total)}")
                 return True # process has closed
             
             self.logger.debug(f"Memory usage: {format_bytes(memory_usage)}")
