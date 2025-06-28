@@ -12,13 +12,14 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 from ..utils.security import security_manager
 import traceback
+import zipfile
 
 class MasterClient:
     def __init__(self, config: Config):
         print(f'master_address {config.master_address}')
         self.master_address = config.master_address
         self.shared_dir = config.shared_dir
-        self.logger = setup_logging(config.log_level)
+        self.logger = setup_logging("master_client", config.log_level)
 
 
     @asynccontextmanager
@@ -74,9 +75,14 @@ class MasterClient:
                 f.write(chunk.chunk_data)
                 if chunk.is_last_chunk:
                     break
-                    
-        self.logger.debug(f'renaming {temp_path} to {data_path}')
-        os.rename(temp_path, data_path)
+    
+        if data_metadata.is_zipped:
+            self.logger.debug(f'unzipping {temp_path} to {data_path}')
+            with zipfile.ZipFile(temp_path, 'r') as zip_ref:
+                zip_ref.extractall(os.path.dirname(data_path))
+        else:
+            self.logger.debug(f'renaming {temp_path} to {data_path}')
+            os.rename(temp_path, data_path)
 
         return data_path
             
@@ -142,11 +148,28 @@ class MasterClient:
                 self.logger.error(f"Failed to deregister worker: {e}")
                 raise
 
-    async def task_complete(self, task_id: int):
+    async def task_complete(self, task_id: int, average_memory_bytes: int, total_time_elapsed: float):
         async with self._get_master_stub() as stub:
             try:
-                response = await stub.TaskComplete(master_pb2.TaskCompleteRequest(task_id=task_id))
+                response = await stub.TaskComplete(master_pb2.TaskCompleteRequest(
+                    task_id=task_id,
+                    average_memory_bytes=average_memory_bytes,
+                    total_time_elapsed=total_time_elapsed
+                ))
                 return response
             except Exception as e:
                 self.logger.error(f"Failed to complete task: {e}")
                 raise
+
+    async def node_heartbeat(self, node_id: int, number_of_tasks: int, memory_usage_bytes: int):
+        async with self._get_master_stub() as stub:
+            try:
+                response = await stub.NodeHeartbeat(master_pb2.NodeHeartbeatRequest(
+                    node_id=node_id,
+                    number_of_tasks=number_of_tasks,
+                    memory_usage_bytes=memory_usage_bytes
+                ), timeout=1)
+                return response
+            except Exception as e:
+                self.logger.debug(f"Failed to send heartbeat to master: {e}")
+                return None

@@ -26,7 +26,7 @@ class CacheManager:
     def __init__(self, config: Config):
         """Initialize data cache with configuration."""
         self.config = config
-        self.logger = setup_logging(config.worker_id, config.log_level)
+        self.logger = setup_logging("cache_manager", config.log_level)
         self.cache_dir = config.cache_dir
         # Ensure cache directory exists
         self.logger.info(f"Initializing cache manager with cache directory: {self.cache_dir}")

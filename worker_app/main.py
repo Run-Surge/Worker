@@ -1,5 +1,6 @@
 """Main entry point for the worker node."""
 
+import os
 import argparse
 import asyncio
 import logging
@@ -7,6 +8,7 @@ import threading
 import signal
 import sys
 import time
+import traceback
 from concurrent import futures
 import grpc.aio
 from .config import Config
@@ -78,6 +80,20 @@ def parse_arguments():
         help='Data cache size limit in MB (default: 2048)'
     )
     
+    parser.add_argument(
+        '--username', 
+        type=str, 
+        default=None,
+        help='Username for the worker (default: None)'
+    )
+    
+    parser.add_argument(
+        '--password', 
+        type=str, 
+        default=None,
+        help='Password for the worker (default: None)'
+    )
+
     return parser.parse_args()
 
 
@@ -97,7 +113,10 @@ def create_config(args) -> Config:
     config.max_concurrent_tasks = args.max_tasks
     config.log_level = args.log_level
     config.cache_size_limit_mb = args.cache_size_mb
-    
+    if args.username:
+        config.username = args.username
+    if args.password:
+        config.password = args.password
     if args.cpu_cores:
         config.cpu_cores = args.cpu_cores
     if args.memory_bytes:
@@ -136,6 +155,7 @@ def deregister_from_master(config: Config):
 
 def setup_signal_handlers(server: grpc.Server, worker_manager: WorkerManager, config: Config):
     """Set up signal handlers for graceful shutdown."""
+    print("Setting up signal handlers")
     running_loop = asyncio.get_running_loop()
     def signal_handler(signum, frame):
         print(f"\nReceived signal {signum}, starting graceful shutdown...")
@@ -149,15 +169,16 @@ def setup_signal_handlers(server: grpc.Server, worker_manager: WorkerManager, co
         worker_manager.shutdown()
         
         print("Shutdown complete")
-        sys.exit(0)
-    
+        os._exit(0)
+
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
 
-async def register_with_master(config: Config, server: grpc.Server, logger: logging.Logger):
+async def register_with_master(config: Config):
     """Register the worker with the master."""
     try:    
+        print(f'registering with master')
         master_client = MasterClient(config)
         response = await master_client.register_worker(config)
         if not response.success:
@@ -165,9 +186,8 @@ async def register_with_master(config: Config, server: grpc.Server, logger: logg
         config.worker_id = response.node_id
     except Exception as e:
         # print(f"Failed to register with master: {e}")
-        await server.stop(grace=1)
-        logger.info(f"Closing worker...")
-        sys.exit(1)
+        print(f"Closing worker...")
+        os._exit(1)
 
 
 
@@ -182,7 +202,11 @@ async def main():
         config = create_config(args)
         
         # Set up logging
-        logger = setup_logging(config.worker_id, config.log_level)
+        
+        await register_with_master(config)
+
+        # Set up logging
+        logger = setup_logging("main", config.log_level)
         
         logger.info(f"Starting worker node {config.worker_id}")
         logger.info(f"Configuration: port={config.listen_port}, "
@@ -208,8 +232,6 @@ async def main():
         await server.start()
         
 
-        #TODO: register the worker with the master 
-        await register_with_master(config, server, logger)
         logger.info(f"Worker {config.worker_id} is running and ready to accept tasks")
         logger.info(f"Listening on port {config.listen_port}")
         
@@ -226,5 +248,6 @@ async def main():
             logger.info("Keyboard interrupt received, shutting down...")
             await deregister_from_master(config)
     except Exception as e:
+        print(traceback.format_exc())
         print(f"Failed to start worker: {e}")
         sys.exit(1)

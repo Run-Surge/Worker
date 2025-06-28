@@ -1,8 +1,11 @@
 import os
+import asyncio
 import threading
 import time
 from typing import Dict, Optional, Tuple, Any
 from enum import Enum
+import sys
+import random
 
 from ..config import Config
 from .cache_manager import CacheManager, CacheEntry
@@ -14,6 +17,7 @@ from protos.common_pb2 import DataMetadata
 from .master_client import MasterClient
 from ..utils.util import create_data_path
 from ..vm.vm import VMTaskExecutor
+from ..utils.constants import HEARTBEAT_INTERVAL, JITTER_INTERVAL, HEARTBEAT_FAILURE_THRESHOLD
 
 class WorkerState(Enum):
     """Worker states matching the proto definition."""
@@ -36,15 +40,13 @@ class WorkerManager:
     
     def __init__(self, config: Config):
         self.config = config
-        self.worker_id = config.worker_id   
-        self.logger = setup_logging(self.worker_id)
-        
+        self.logger = setup_logging("worker_manager", config.log_level)
         # Worker state
         self.state = WorkerState.INITIALIZING
         self.startup_time = time.time()
         
         # Resource management
-        self.resource_pool = ResourcePool(config.cpu_cores, config.memory_bytes)
+        self.resource_pool = ResourcePool(config)
         
         # Task management
         self.active_tasks: Dict[str, TaskContext] = {}
@@ -55,14 +57,16 @@ class WorkerManager:
         self.master_client = MasterClient(config)
         self.vm_executor = VMTaskExecutor(
             disk_image=config.disk_image,
-            memory=config.memory_bytes,
+            memory_bytes=config.memory_bytes,
             cpus=config.cpu_cores,
             vm_startup_timeout=config.vm_startup_timeout,
             shared_folder_host=os.path.abspath(config.shared_dir),
             shared_folder_guest="/mnt/win",
         )
-        self.task_processor = TaskProcessor(config, self.data_cache, self.worker_id, self.master_client, self.vm_executor)
+        self.task_processor = TaskProcessor(config, self.data_cache, self.config.worker_id, self.master_client, self.vm_executor)
         
+        self.running_event_loop = asyncio.get_event_loop()
+        self.running_event_loop.create_task(self.heartbeat_loop())
         # Initialize directories
         config.ensure_directories()
         
@@ -70,16 +74,52 @@ class WorkerManager:
         self._initialize_vm()
         self.state = WorkerState.IDLE
         self.logger.info(f"VM state: {self.vm_executor.get_vm_status()}")
-        self.logger.info(f"WorkerManager initialized for worker {self.worker_id}")
+        self.logger.info(f"WorkerManager initialized for worker {self.config.worker_id}")
         self.logger.info(f"Resource pool: {self.resource_pool.total_cpu_cores} CPU cores, "
                         f"{self.resource_pool.total_memory_bytes} bytes memory")
+
+    async def _get_memory_usage(self):
+        """
+        Get the memory usage of the worker.
+        """
+        memory_usage = 0
+        for task_id, task_context in self.active_tasks.items():
+            memory_usage += task_context.current_memory_usage
+        return memory_usage
+
+    async def heartbeat_loop(self):
+        fail_counter = HEARTBEAT_FAILURE_THRESHOLD
+        while True:
+            sleep_time = HEARTBEAT_INTERVAL + random.uniform(0, JITTER_INTERVAL)
+            self.logger.debug(f"Sleeping for {sleep_time} seconds")
+            print(f"Sleeping for {sleep_time} seconds")
+            await asyncio.sleep(sleep_time)
+            
+            memory_usage = await self._get_memory_usage()
+            self.logger.debug(f"Sending heartbeat to master no. tasks: {len(self.active_tasks)}, memory usage: {memory_usage}")
+            response = await self.master_client.node_heartbeat(
+                node_id=self.config.worker_id,
+                number_of_tasks=len(self.active_tasks),
+                memory_usage_bytes=memory_usage
+            )
+
+            if response is None:
+                fail_counter -= 1
+            else:
+                fail_counter = HEARTBEAT_FAILURE_THRESHOLD
+
+            if fail_counter == 0:
+                self.logger.error(f"Failed to send heartbeat to master, shutting down")
+                await self.master_client.deregister_worker(self.config)
+                self.shutdown()
+                os._exit(1)
 
     def _initialize_vm(self):
         if self.config.start_vm_on_startup:
             result = self.vm_executor.launch_vm()
             if not result:
                 self.logger.error("Failed to launch VM")
-            raise Exception("Failed to launch VM")
+                raise Exception("Failed to launch VM")
         else:
             self.logger.info("Starting VM on startup is disabled, establishing SSH connection")
             self.vm_executor.vm_running = True
@@ -203,6 +243,7 @@ class WorkerManager:
             result: Task result if successful
             error: Error message if failed
         """
+        task_context = self.active_tasks[task_assignment.task_id]
         self._cleanup_task(task_assignment.task_id)
 
         if success:
@@ -223,7 +264,11 @@ class WorkerManager:
                 self.data_cache.add_cache_entry(output_data_info.data_id, entry)
             self.logger.info(f"adding output data to cache manager")
             #TODO: Report task completion to master
-            await self.master_client.task_complete(task_assignment.task_id)
+            await self.master_client.task_complete(
+                task_id=task_assignment.task_id,
+                average_memory_bytes=task_context.average_memory_bytes,
+                total_time_elapsed=task_context.total_time_elapsed
+            )
             self.logger.info(f"reporting task completion to master")
         else:
             self.logger.error(f"Task {task_assignment.task_id} failed - Error: {error}")
@@ -266,6 +311,7 @@ class WorkerManager:
     def notify_data(self, data_notification: DataNotification) -> Tuple[bool, str]:
         """Notify the worker that data is available."""
         self.logger.debug(f"NotifyData called for data {data_notification.data_id}")
+        self.logger.debug(f"Data notification: {data_notification}")
         task = self.active_tasks.get(data_notification.task_id)
         if not task:
             self.logger.warning(f"Task {data_notification.task_id} not found")
@@ -283,7 +329,8 @@ class WorkerManager:
             port=data_notification.port,
             hash=data_notification.hash,
             is_on_master=is_on_master,
-            task_id=data_notification.task_id
+            task_id=data_notification.task_id,
+            is_zipped=data_notification.is_zipped
         )
 
         #TODO: download file from here instead of having a thread wait for it
@@ -294,7 +341,28 @@ class WorkerManager:
         """Gracefully shutdown the worker."""
         self.logger.info("Worker shutdown initiated")
         self.state = WorkerState.SHUTTING_DOWN
-        
+        self.vm_executor.stop_vm()
+        # Kill all OS processes spawned by this worker
+        import psutil
+        current_process = psutil.Process()
+        children = current_process.children(recursive=True)
+        print(f"Children: {children}")
+        with open("children.txt", "w") as f:
+                f.write(f"current process: {current_process.pid}\n")
+                f.write(f"children: {children}\n")
+        for child in children:
+            self.logger.info(f"Terminating process {child.pid}")
+            try:
+                child.terminate()  # Try graceful termination first
+                try:
+                    child.wait(timeout=5)  # Wait up to 5 seconds
+                except psutil.TimeoutExpired:
+                    self.logger.warning(f"Process {child.pid} did not terminate gracefully, forcing kill")
+                    child.kill()  # Force kill if process doesn't respond to terminate
+            except psutil.NoSuchProcess:
+                pass  # Process already terminated
+            except Exception as e:
+                self.logger.error(f"Error killing process {child.pid}: {e}")
         # TODO: Wait for active tasks to complete or terminate them
         # TODO: Cleanup resources
         # TODO: Notify master of shutdown

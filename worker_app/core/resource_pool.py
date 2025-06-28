@@ -6,7 +6,7 @@ import time
 from typing import Optional
 from typing import Dict, Any
 from ..utils.logging_setup import setup_logging
-
+from ..config import Config
 
 class ResourcePool:
     """
@@ -16,11 +16,11 @@ class ResourcePool:
     Currently simulates resource management but returns True for can_accept_task.
     """
     
-    def __init__(self, total_cpu_cores: Optional[int] = None, total_memory_bytes: Optional[int] = None):
+    def __init__(self, config: Config):
         # Auto-detect system resources if not provided
-        self.total_cpu_cores = total_cpu_cores or psutil.cpu_count()
-        self.total_memory_bytes = total_memory_bytes or psutil.virtual_memory().total
-        self.logger = setup_logging('INFO')
+        self.total_cpu_cores = config.cpu_cores
+        self.total_memory_bytes = config.memory_bytes
+        self.logger = setup_logging("resource_pool", config.log_level)
         # Track allocated resources
         self.allocated_cpu_cores = 0.0
         self.allocated_memory_bytes = 0

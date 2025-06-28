@@ -16,6 +16,7 @@ from .master_client import MasterClient
 import subprocess
 import sys
 from ..vm.vm import VMTaskExecutor
+from ..utils.util import format_bytes
 
 class TaskStatus(Enum):
     """Task execution status."""
@@ -47,6 +48,11 @@ class TaskContext:
     cpu_allocated: float
     memory_allocated: float
     pid: Optional[int]
+    task_timeout: Optional[float] = 7200 # seconds
+    memory_usage_total: Optional[float] = 0
+    total_time_elapsed: Optional[float] = 0
+    current_memory_usage: Optional[int] = 0
+    average_memory_bytes: Optional[int] = 0
     def __post_init__(self):
         if self.thread is None:
             self.thread = None
@@ -66,7 +72,7 @@ class TaskProcessor:
         self.worker_id = worker_id
         self.master_client = master_client
         self.vm_executor = vm_executor
-        self.logger = setup_logging(config.log_level)
+        self.logger = setup_logging("task_processor", config.log_level)
     
     def create_task_context(self, task_assignment: TaskAssignment, cpu_allocated: float = 1.0, memory_allocated: float = 1.0) -> TaskContext:
         """Create a new task context from assignment."""
@@ -147,10 +153,36 @@ class TaskProcessor:
         with asyncio.Runner() as runner:
             runner.run(self._execute_task_async(task_context, completion_callback))
 
+    async def _wait_for_python_code_to_finish(self, pid: int, task_context: TaskContext) -> bool:
+        """
+        Wait for the python code to finish executing.
+        """
+        self.logger.debug(f"Waiting for python code to finish executing with PID: {pid}")
+        timeout = task_context.task_timeout
+        start_time = time.time()
+        while True:
+            await asyncio.sleep(1)
+            memory_usage = self.vm_executor.get_process_memory_usage(pid, str(task_context.task_id))
+            if memory_usage is None:
+                task_context.total_time_elapsed = time.time() - start_time
+                task_context.average_memory_bytes = int(task_context.memory_usage_total / task_context.total_time_elapsed)
+                self.logger.debug(f"Task {task_context.task_id} total time elapsed: {task_context.total_time_elapsed}")
+                self.logger.debug(f"Task {task_context.task_id} average memory usage: {format_bytes(task_context.average_memory_bytes)}")
+                self.logger.debug(f"Task {task_context.task_id} memory usage total: {format_bytes(task_context.memory_usage_total)}")
+                return True # process has closed
+            
+            self.logger.debug(f"Memory usage: {format_bytes(memory_usage)}")
+            task_context.memory_usage_total += memory_usage
+            task_context.current_memory_usage = memory_usage
+            if time.time() - task_context.start_time > timeout:
+                self.logger.error(f"Task {task_context.task_id} timed out")
+                self.vm_executor.kill_process(pid)
+                return False # timeout
+
     async def _execute_task_async(self, task_context: TaskContext, completion_callback):
         try:
             self.logger.info(f"Executing task {task_context.task_id}")
-            
+            self.logger.debug(f"Task {task_context.task_id} task context: {task_context}")
             # Step 1: Fetch Python script
             task_assignment = task_context.task_assignment
             task_context.status = TaskStatus.FETCHING_FILES
@@ -160,21 +192,24 @@ class TaskProcessor:
                 task_assignment.python_file_name
                 )
 
-            # Step 3: Execute the task
-            task_context.status = TaskStatus.EXECUTING
-            result, pid = await self._execute_python_code(task_assignment, linux_python_script_path)
-            task_context.pid = pid
 
             # Step 2: Fetch required data
             task_context.status = TaskStatus.FETCHING_DATA
             await self._fetch_required_data(task_context.required_data_status, task_context)
             
+            # Step 3: Execute the task
+            task_context.status = TaskStatus.EXECUTING
+            result, pid = await self._execute_python_code(task_assignment, linux_python_script_path)
+            task_context.pid = pid
+
+            
+            
             #TODO: This is a hack to wait for the python code to finish executing
             #TODO: check memory usage using ssh connection, will be used to check if the python code is finished executing
             self.logger.debug(f"sleeping for 5 seconds to wait for python code to finish executing")
-            await asyncio.sleep(5)
-            
+            await self._wait_for_python_code_to_finish(pid, task_context)
             self.logger.debug(f"Python code finished executing")
+            
             # Step 4: Handle result
             task_context.result = result
             task_context.status = TaskStatus.COMPLETED

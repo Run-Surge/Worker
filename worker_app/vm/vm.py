@@ -11,6 +11,7 @@ import socket
 import psutil
 import ctypes
 import traceback
+from ..utils.logging_setup import setup_logging
 
 class VMTaskExecutor:    
     def __init__(self, 
@@ -18,7 +19,7 @@ class VMTaskExecutor:
                  ssh_username: str = "root", 
                  ssh_password: str = "1234",
                  ssh_port: int = 2222,
-                 memory: int = 2048,
+                 memory_bytes: int = 1024 * 1024 * 1024,
                  cpus: int = 2,
                  vm_startup_timeout: int = 90,
                  task_timeout: int = 120,
@@ -51,7 +52,7 @@ class VMTaskExecutor:
         self.ssh_username = ssh_username
         self.ssh_password = ssh_password
         self.ssh_port = ssh_port
-        self.memory = memory
+        self.memory_bytes = memory_bytes
         self.cpus = cpus
         self.vm_startup_timeout = vm_startup_timeout
         self.task_timeout = task_timeout
@@ -64,12 +65,9 @@ class VMTaskExecutor:
         self.vm_running = False
         
         self.ssh_client: Optional[paramiko.SSHClient] = None
-        logging.basicConfig(
-            level=getattr(logging, log_level.upper()),
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        self.logger = logging.getLogger(__name__)
+        
+        # Use the same logging setup as the rest of the application
+        self.logger = setup_logging("vm", log_level)
         
         # Suppress paramiko's verbose logging
         logging.getLogger("paramiko").setLevel(logging.CRITICAL)
@@ -128,59 +126,31 @@ class VMTaskExecutor:
         except Exception as e:
             self.logger.warning(f"Could not check administrator privileges: {e}")
             return False
-
-    def _request_admin_privileges(self) -> bool:
+        
+    def _run_bat_as_admin_subprocess(self, cmd):
+        """Alternative method using subprocess with PowerShell elevation"""
         try:
-            self.logger.info("Administrator privileges are required for SMB share setup.")
-            response = input("Do you want to request administrator privileges? (y/n): ").strip().lower()
-            if response.lower() not in ['y', 'yes']:
-                self.logger.info("Administrator privileges declined by user.")
-                return False
-            
-            
-            self.logger.info("Requesting administrator privileges...")
-            
-            # Get the current script path
-            if getattr(sys, 'frozen', False):
-                # If running as a compiled executable
-                script_path = sys.executable
-            else:
-                # If running as a Python script
-                script_path = sys.argv[0]
-            
-            # Prepare arguments to pass to the elevated process
-            args = ' '.join(sys.argv[1:])
-            
-            # Request elevation using ShellExecuteW
-            result = ctypes.windll.shell32.ShellExecuteW(
-                None, 
-                "runas",  # Verb to request elevation
-                sys.executable,  # Python executable
-                f'"{script_path}" {args}',  # Script and arguments
-                None,  # Working directory
-                1  # Show window
+            print(f"Running {cmd} with admin privileges via PowerShell")
+            # Use PowerShell to run the batch file with elevation
+            powershell_cmd = f'Start-Process -FilePath "{cmd}" -Verb RunAs -Wait'
+            result = subprocess.run(
+                ["powershell", "-Command", powershell_cmd],
+                capture_output=True,
+                text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW
             )
-            
-            if result > 32:  # Success
-                self.logger.info("Administrator privileges requested. Please approve the UAC prompt.")
-                self.logger.info("The application will restart with elevated privileges.")
-                # Exit current process as the elevated one will take over
-                sys.exit(0)
+            if result.returncode == 0:
+                print(f"Successfully started {cmd} with admin privileges via PowerShell")
+                return True
             else:
-                self.logger.error("Failed to request administrator privileges.")
+                print(f"Failed to start {cmd}. Error: {result.stderr}")
                 return False
-                
         except Exception as e:
-            self.logger.error(f"Failed to request elevation: {e}")
+            print(f"Error running bat file via PowerShell: {e}")
             return False
 
     def _setup_smb_with_batch(self) -> bool:
         try:
-            if not self._check_admin_privileges():
-                self.logger.warning("Administrator privileges required for SMB share setup!")
-                if not self._request_admin_privileges():
-                    self.logger.error("Cannot proceed without administrator privileges.")
-                    return False
             self.logger.info("Setting up SMB share using smb.bat...")
             smb_script = os.path.join(os.path.dirname(__file__), "smb.bat")
             print(f"SMB Script: {smb_script}")
@@ -191,24 +161,67 @@ class VMTaskExecutor:
             print(f"SMB Password: {self.smb_password}")
             print(f"Shared Folder: {self.shared_folder_host}")
             print(f"SMB Share Name: {self.smb_share_name}")
-            cmd = f'"{smb_script}" "{self.smb_username}" "{self.smb_password}" "{self.smb_share_name}" "{self.shared_folder_host}"'            
-            try:
-                result = subprocess.run(cmd, shell=True)
-                if result.returncode == 0:
-                    self.logger.info("SMB share setup completed successfully")
-                    return True
-                else:
-                    self.logger.error(f"SMB setup failed with return code {result.returncode}")
-                    return False
-                    
-            except subprocess.CalledProcessError as e:
-                self.logger.error(f"Failed to execute smb.bat: {e}")
-                return False
-                
+            cmd = f'{smb_script} "{self.smb_username}" "{self.smb_password}" "{self.smb_share_name}" "{self.shared_folder_host}"'            
+            print(cmd)
+            self._run_bat_as_admin_subprocess(cmd)
+            return True        
+            
         except Exception as e:
             self.logger.error(f"Failed to setup SMB share: {e}")
             return False
+    def _launch_vm_directly(self) -> bool:
+        """
+        Launch VM directly as a subprocess of Python.
+        """
+        try:
+            self.logger.info("Launching VM directly...")
+            qemu_executable = self._get_qemu_executable()
+            memory_mib = int(self.memory_bytes / (1024 * 1024)) # QEMU -m expects MiB
 
+            if not os.path.exists(qemu_executable):
+                self.logger.error(f"QEMU executable not found at: {qemu_executable}")
+                return False
+            if not os.path.exists(self.disk_image):
+                self.logger.error(f"Disk image not found at: {self.disk_image}")
+                return False
+
+            cmd_list = [
+                qemu_executable,
+                "-m", str(memory_mib),
+                "-smp", str(self.cpus),
+                "-cpu", "qemu64",
+                "-accel", "tcg",
+                "-net", "nic",
+                "-net", f"user,hostfwd=tcp::{self.ssh_port}-:22",
+                "-hda", os.path.abspath(self.disk_image),
+                "-display", "none",
+                "-nographic",
+            ]
+
+            creation_flags = 0
+            if os.name == 'nt': # If running on Windows
+                # CREATE_NEW_PROCESS_GROUP makes the child process the root of a new process group.
+                # When the parent dies, the OS can clean up this group more effectively.
+                # It often works in conjunction with job objects for robust cleanup.
+                creation_flags |= subprocess.CREATE_NEW_PROCESS_GROUP
+                creation_flags |= subprocess.CREATE_NO_WINDOW # To prevent console window pop-up
+
+            print(cmd_list)
+            self.vm_process = subprocess.Popen(
+                cmd_list,
+                # Use shell=True for Windows compatibility like the batch method
+                shell=False,
+                creationflags=creation_flags,
+                # Don't capture QEMU output - let it run freely
+                stdout=None,
+                stderr=None
+            )
+            self.logger.info(f"VM process (PID: {self.vm_process.pid}) started directly.")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to launch VM directly: {e}")
+            return False
     def _launch_vm_with_batch(self) -> bool:
         """
         Launch VM using startup.bat script with parameters.
@@ -219,7 +232,8 @@ class VMTaskExecutor:
             if not os.path.exists(startup_script):
                 self.logger.error("startup.bat not found in the current directory")
                 return False
-            cmd = f'"{startup_script}" "{self.memory}" "{self.cpus}" "{self.ssh_port}" "{self.disk_image}" "{self._get_qemu_executable()}"'          
+            
+            cmd = f'"{startup_script}" "{self.memory_bytes / 1024 / 1024}" "{self.cpus}" "{self.ssh_port}" "{self.disk_image}" "{self._get_qemu_executable()}"'          
             try:
                 self.vm_process = subprocess.Popen(
                     cmd,
@@ -259,7 +273,7 @@ class VMTaskExecutor:
                 self.logger.error("Failed to setup SMB share")
                 return False
             
-            if not self._launch_vm_with_batch():
+            if not self._launch_vm_directly():
                 self.logger.error("Failed to launch VM using startup.bat")
                 return False
             
@@ -366,6 +380,8 @@ class VMTaskExecutor:
             
             if self.vm_process:
                 self.vm_process.terminate()
+                self.vm_process.kill()
+                self.vm_process.wait()
                 try:
                     self.vm_process.wait(timeout=10)
                 except subprocess.TimeoutExpired:
@@ -388,7 +404,7 @@ class VMTaskExecutor:
             "vm_process_alive": False,
             "ssh_connected": False,
             "ssh_port": self.ssh_port,
-            "memory": self.memory,
+            "memory": self.memory_bytes,
             "cpus": self.cpus,
             "disk_image": self.disk_image,
             "shared_folder_host": self.shared_folder_host,
@@ -448,12 +464,12 @@ class VMTaskExecutor:
             self.logger.error(f"Failed to execute command '{command}': {e}")
             return None
         
-    def get_process_memory_usage(self, pid: int, timeout: Optional[int] = None) -> Optional[int]:
+    def get_process_memory_usage(self, pid: int, task_id: str, timeout: Optional[int] = None) -> Optional[int]:
         """
         Get the memory usage of a process by PID.
 
         Returns:
-            tuple: (memory_usage in bytes, error)
+            memory_usage in bytes
         """
         self.establish_ssh_connection()
         try:
@@ -463,21 +479,60 @@ class VMTaskExecutor:
             output = stdout.read().decode('utf-8', errors='ignore')
             error = stderr.read().decode('utf-8', errors='ignore')
             
-            if error:
+            if error and "No such file or directory" not in error:
                 self.logger.error(f"Failed to get process memory usage for PID {pid}: {error}")
-                return None, error
+                raise Exception(f"Failed to get process memory usage for PID {pid}: {error}")
+            elif error:
+                self.check_error_file(f"/mnt/win/{task_id}/error.err")
+                self.logger.info(f"Process has closed, error is {error}")
+                return None
             
             if "python3" not in output:
-                return None, "Process is not a Python process"
+                self.logger.error(f"Process is not a Python process: {output}")
+                self.check_error_file(f"/mnt/win/{task_id}/error.err")
+                return None
+                
             print(f"output is {output}")
-            memory_usage = int(output.split()[-2]) * 1024
-            return memory_usage, None
+            memory_usage = int(output.split()[-2]) * 1024 # KiB to B
+            return memory_usage
+        except ValueError as e:
+            #sometimes kib doesn't exist, we will assume the task is finished
+            #TODO: look into this maybe do retries
+            self.logger.info(f"Failed to get process memory usage for PID {pid}: {e}")
+            return None
         except Exception as e:
             print(traceback.format_exc())
             self.logger.error(f"Failed to get process memory usage for PID {pid}: {e}")
-            return None, str(e)
+            raise e
+        
+    def check_error_file(self, path: str):
+        self.logger.info(f"Checking error file {path}")
+        self.establish_ssh_connection()
+        try:
+            command = f"cat {path}"
+            output, error = self._execute_command(command)
+        except Exception as e:
+            self.logger.error(f"Failed to check error file {path}: {e}")
+            return
+        
+        if len(output) > 0:
+            raise Exception(f"python process failed: {output}")
+                
+
+    def kill_process(self, pid: int) -> bool:
+        self.establish_ssh_connection()
+        try:
+            command = f"kill -9 {pid}"
+            self._execute_command(command)
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to kill process {pid}: {e}")
+            return False
     
     def _execute_command(self, command: str, timeout: Optional[int] = None) -> Tuple[Optional[str], Optional[str]]:
+        """
+        returns (output, error)
+        """
         if not self.vm_running or not self.ssh_client:
             return None, "VM is not running or SSH not connected"
         

@@ -14,14 +14,15 @@ class Config:
     
     # Network settings
     listen_port: int = 50000
-    master_address: str = "10.10.10.213:12345"
-    master_ip_address: str = "10.10.10.213"
+    master_address: str = "10.10.10.218:12345"
+    master_ip_address: str = "10.10.10.218"
     master_port: int = 12345
+    maseter_backend_port: int = 8000
     
     # Resource limits
     max_concurrent_tasks: int = 1
     cpu_cores: Optional[int] = 1  # Auto-detect if None
-    memory_bytes: Optional[int] = (9000)  # Auto-detect if None (bytes)
+    memory_bytes: Optional[int] = 1024 * 1024 * 1024  # 1 GB
     
     # Task execution settings
     task_timeout_seconds: int = 300  # 5 minutes
@@ -43,7 +44,7 @@ class Config:
     cache_dir: str = os.path.join('.', 'worker_app', 'vm', 'shared')
     shared_dir: str = os.path.join('.', 'worker_app', 'vm', 'shared')
 
-    username: str = "nourr"
+    username: str = "abdo"
     password: str = "123456"
     
     
