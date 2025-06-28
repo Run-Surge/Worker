@@ -51,6 +51,7 @@ class TaskContext:
     task_timeout: Optional[float] = 7200 # seconds
     memory_usage_total: Optional[float] = 0
     total_time_elapsed: Optional[float] = 0
+    current_memory_usage: Optional[int] = 0
     average_memory_bytes: Optional[int] = 0
     def __post_init__(self):
         if self.thread is None:
@@ -71,7 +72,7 @@ class TaskProcessor:
         self.worker_id = worker_id
         self.master_client = master_client
         self.vm_executor = vm_executor
-        self.logger = setup_logging(config.log_level)
+        self.logger = setup_logging("task_processor", config.log_level)
     
     def create_task_context(self, task_assignment: TaskAssignment, cpu_allocated: float = 1.0, memory_allocated: float = 1.0) -> TaskContext:
         """Create a new task context from assignment."""
@@ -172,6 +173,7 @@ class TaskProcessor:
             
             self.logger.debug(f"Memory usage: {format_bytes(memory_usage)}")
             task_context.memory_usage_total += memory_usage
+            task_context.current_memory_usage = memory_usage
             if time.time() - task_context.start_time > timeout:
                 self.logger.error(f"Task {task_context.task_id} timed out")
                 self.vm_executor.kill_process(pid)

@@ -32,10 +32,9 @@ class WorkerServicer(worker_pb2_grpc.WorkerServiceServicer):
     
     def __init__(self, worker_manager: WorkerManager, config: Config):
         self.worker_manager = worker_manager
-        self.worker_id = worker_manager.worker_id
-        self.logger = setup_logging(self.worker_id)
+        self.logger = setup_logging("worker_servicer", config.log_level)
         self.config = config
-        self.logger.info(f"WorkerServicer initialized for worker {self.worker_id}")
+        self.logger.info(f"WorkerServicer initialized for worker {self.worker_manager.config.worker_id}")
     
     def GetWorkerStatus(self, request: Empty, context: grpc.ServicerContext) -> worker_pb2.WorkerStatus:
         """

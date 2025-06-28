@@ -1,8 +1,11 @@
 import os
+import asyncio
 import threading
 import time
 from typing import Dict, Optional, Tuple, Any
 from enum import Enum
+import sys
+import random
 
 from ..config import Config
 from .cache_manager import CacheManager, CacheEntry
@@ -14,6 +17,7 @@ from protos.common_pb2 import DataMetadata
 from .master_client import MasterClient
 from ..utils.util import create_data_path
 from ..vm.vm import VMTaskExecutor
+from ..utils.constants import HEARTBEAT_INTERVAL, JITTER_INTERVAL, HEARTBEAT_FAILURE_THRESHOLD
 
 class WorkerState(Enum):
     """Worker states matching the proto definition."""
@@ -36,15 +40,13 @@ class WorkerManager:
     
     def __init__(self, config: Config):
         self.config = config
-        self.worker_id = config.worker_id   
-        self.logger = setup_logging(self.worker_id)
-        
+        self.logger = setup_logging("worker_manager", config.log_level)
         # Worker state
         self.state = WorkerState.INITIALIZING
         self.startup_time = time.time()
         
         # Resource management
-        self.resource_pool = ResourcePool(config.cpu_cores, config.memory_bytes)
+        self.resource_pool = ResourcePool(config)
         
         # Task management
         self.active_tasks: Dict[str, TaskContext] = {}
@@ -61,8 +63,10 @@ class WorkerManager:
             shared_folder_host=os.path.abspath(config.shared_dir),
             shared_folder_guest="/mnt/win",
         )
-        self.task_processor = TaskProcessor(config, self.data_cache, self.worker_id, self.master_client, self.vm_executor)
+        self.task_processor = TaskProcessor(config, self.data_cache, self.config.worker_id, self.master_client, self.vm_executor)
         
+        self.running_event_loop = asyncio.get_event_loop()
+        self.running_event_loop.create_task(self.heartbeat_loop())
         # Initialize directories
         config.ensure_directories()
         
@@ -70,9 +74,45 @@ class WorkerManager:
         self._initialize_vm()
         self.state = WorkerState.IDLE
         self.logger.info(f"VM state: {self.vm_executor.get_vm_status()}")
-        self.logger.info(f"WorkerManager initialized for worker {self.worker_id}")
+        self.logger.info(f"WorkerManager initialized for worker {self.config.worker_id}")
         self.logger.info(f"Resource pool: {self.resource_pool.total_cpu_cores} CPU cores, "
                         f"{self.resource_pool.total_memory_bytes} bytes memory")
+
+    async def _get_memory_usage(self):
+        """
+        Get the memory usage of the worker.
+        """
+        memory_usage = 0
+        for task_id, task_context in self.active_tasks.items():
+            memory_usage += task_context.current_memory_usage
+        return memory_usage
+
+    async def heartbeat_loop(self):
+        fail_counter = HEARTBEAT_FAILURE_THRESHOLD
+        while True:
+            sleep_time = HEARTBEAT_INTERVAL + random.uniform(0, JITTER_INTERVAL)
+            self.logger.debug(f"Sleeping for {sleep_time} seconds")
+            print(f"Sleeping for {sleep_time} seconds")
+            await asyncio.sleep(sleep_time)
+            
+            memory_usage = await self._get_memory_usage()
+            self.logger.debug(f"Sending heartbeat to master no. tasks: {len(self.active_tasks)}, memory usage: {memory_usage}")
+            response = await self.master_client.node_heartbeat(
+                node_id=self.config.worker_id,
+                number_of_tasks=len(self.active_tasks),
+                memory_usage_bytes=memory_usage
+            )
+
+            if response is None:
+                fail_counter -= 1
+            else:
+                fail_counter = HEARTBEAT_FAILURE_THRESHOLD
+
+            if fail_counter == 0:
+                self.logger.error(f"Failed to send heartbeat to master, shutting down")
+                await self.master_client.deregister_worker(self.config)
+                self.shutdown()
+                os._exit(1)
 
     def _initialize_vm(self):
         if self.config.start_vm_on_startup:

@@ -5,7 +5,7 @@ import sys
 from typing import Optional
 
 
-def setup_logging(worker_id: Optional[str] = None, log_level: str = 'INFO') -> logging.Logger:
+def setup_logging(service_name: str = "Service_Name", log_level: str = 'INFO') -> logging.Logger:
     """Set up logging configuration.
     
     Args:
@@ -16,23 +16,27 @@ def setup_logging(worker_id: Optional[str] = None, log_level: str = 'INFO') -> l
         logging.Logger: Configured logger instance
     """
     # Create logger
-    logger = logging.getLogger('worker')
+    logger = logging.getLogger(service_name)
     
-    # Only configure if not already configured
+    # Set the log level (this can be updated on subsequent calls)
+    logger.setLevel(getattr(logging, log_level))
+    
+    # Only configure handlers if not already configured
     if not logger.handlers:
-        logger.setLevel(getattr(logging, log_level))
-        
         # Create console handler
         handler = logging.StreamHandler(sys.stdout)
         handler.setLevel(getattr(logging, log_level))
         
         # Create formatter
         formatter = logging.Formatter(
-            f'%(asctime)s - %(name)s - {worker_id or "worker"} - %(levelname)s - %(message)s'
+            f'%(asctime)s - {service_name} - %(levelname)s - %(message)s'
         )
         handler.setFormatter(formatter)
         
         # Add handler to logger
         logger.addHandler(handler)
+        
+        # Prevent propagation to root logger to avoid duplicate messages
+        logger.propagate = False
     
     return logger 

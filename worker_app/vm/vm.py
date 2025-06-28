@@ -11,6 +11,7 @@ import socket
 import psutil
 import ctypes
 import traceback
+from ..utils.logging_setup import setup_logging
 
 class VMTaskExecutor:    
     def __init__(self, 
@@ -64,12 +65,9 @@ class VMTaskExecutor:
         self.vm_running = False
         
         self.ssh_client: Optional[paramiko.SSHClient] = None
-        logging.basicConfig(
-            level=getattr(logging, log_level.upper()),
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        self.logger = logging.getLogger(__name__)
+        
+        # Use the same logging setup as the rest of the application
+        self.logger = setup_logging("vm", log_level)
         
         # Suppress paramiko's verbose logging
         logging.getLogger("paramiko").setLevel(logging.CRITICAL)

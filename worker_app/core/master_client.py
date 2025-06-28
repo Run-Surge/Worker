@@ -19,7 +19,7 @@ class MasterClient:
         print(f'master_address {config.master_address}')
         self.master_address = config.master_address
         self.shared_dir = config.shared_dir
-        self.logger = setup_logging(config.log_level)
+        self.logger = setup_logging("master_client", config.log_level)
 
 
     @asynccontextmanager
@@ -160,3 +160,16 @@ class MasterClient:
             except Exception as e:
                 self.logger.error(f"Failed to complete task: {e}")
                 raise
+
+    async def node_heartbeat(self, node_id: int, number_of_tasks: int, memory_usage_bytes: int):
+        async with self._get_master_stub() as stub:
+            try:
+                response = await stub.NodeHeartbeat(master_pb2.NodeHeartbeatRequest(
+                    node_id=node_id,
+                    number_of_tasks=number_of_tasks,
+                    memory_usage_bytes=memory_usage_bytes
+                ), timeout=1)
+                return response
+            except Exception as e:
+                self.logger.debug(f"Failed to send heartbeat to master: {e}")
+                return None
