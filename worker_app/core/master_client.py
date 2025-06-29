@@ -173,3 +173,12 @@ class MasterClient:
             except Exception as e:
                 self.logger.debug(f"Failed to send heartbeat to master: {e}")
                 return None
+            
+    async def task_start(self, task_id: int, start_time: float):
+        async with self._get_master_stub() as stub:
+            try:
+                response = await stub.TaskStart(master_pb2.TaskStartRequest(task_id=task_id, start_time=int(start_time)))
+                return response
+            except Exception as e:
+                self.logger.error(f"Failed to start task: {e}")
+                raise

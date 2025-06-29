@@ -41,7 +41,7 @@ class TaskContext:
     required_data_status: dict[int, TaskDataInfo]
     status: TaskStatus
     thread: Optional[threading.Thread]
-    start_time: float
+    start_time: Optional[float]
     end_time: Optional[float]
     result: Optional[Any]
     error: Optional[str]
@@ -88,7 +88,7 @@ class TaskProcessor:
             required_data_status=required_data_status,
             status=TaskStatus.PENDING,
             thread=None,
-            start_time=time.time(),
+            start_time=None,
             end_time=None,
             result=None,
             error=None,
@@ -199,8 +199,10 @@ class TaskProcessor:
             
             # Step 3: Execute the task
             task_context.status = TaskStatus.EXECUTING
-            result, pid = await self._execute_python_code(task_assignment, linux_python_script_path)
+            result, pid = await self._execute_python_code(task_assignment, linux_python_script_path, task_context)
             task_context.pid = pid
+
+            await self.master_client.task_start(task_context.task_id, task_context.start_time)
 
             
             
@@ -208,6 +210,7 @@ class TaskProcessor:
             #TODO: check memory usage using ssh connection, will be used to check if the python code is finished executing
             self.logger.debug(f"sleeping for 5 seconds to wait for python code to finish executing")
             await self._wait_for_python_code_to_finish(pid, task_context)
+            
             self.logger.debug(f"Python code finished executing")
             
             # Step 4: Handle result
@@ -268,13 +271,14 @@ class TaskProcessor:
             raise
 
     
-    async def _execute_python_code(self, task_assignment: TaskAssignment, python_script_path: str) -> Any:
+    async def _execute_python_code(self, task_assignment: TaskAssignment, python_script_path: str, task_context: TaskContext) -> Any:
         """
         Execute the Python code with the provided data.
         
         TODO: invoke VM to execute the python code using the python script path. (it should know data file names, path by itself)
         """
         self.logger.debug(f"Executing Python code in path {python_script_path}")
+        task_context.start_time = time.time()
         pid = self.vm_executor.execute_script(python_script_path)
        
         if pid is None:
