@@ -15,7 +15,7 @@ from ..utils.logging_setup import setup_logging
 
 class VMTaskExecutor:    
     def __init__(self, 
-                 disk_image: str = "./RunSugre-VM.qcow2",
+                 disk_image: str = os.path.join(os.path.dirname(__file__), "AlpineVM.vdi"),
                  ssh_username: str = "root", 
                  ssh_password: str = "1234",
                  ssh_port: int = 2222,
@@ -48,6 +48,7 @@ class VMTaskExecutor:
             smb_share_name: SMB share name
             log_level: Logging level
         """
+        print(f"disk_image: {disk_image}")
         self.disk_image = disk_image
         self.ssh_username = ssh_username
         self.ssh_password = ssh_password
@@ -61,7 +62,6 @@ class VMTaskExecutor:
         self.smb_username = smb_username
         self.smb_password = smb_password
         self.smb_share_name = smb_share_name
-        self.vm_process: Optional[subprocess.Popen] = None
         self.vm_running = False
         
         self.ssh_client: Optional[paramiko.SSHClient] = None
@@ -74,16 +74,10 @@ class VMTaskExecutor:
         logging.getLogger("paramiko.transport").setLevel(logging.CRITICAL)
         logging.getLogger("paramiko.transport.sftp").setLevel(logging.WARNING)
     
-    def _get_qemu_executable(self) -> str:
-            possible_paths = [
-                # should add possible paths here 
-                "C:\\Program Files\\qemu\\qemu-system-x86_64.exe",
-            ]
-            
-            for path in possible_paths:
-                if os.path.exists(path) or (path == "qemu-system-x86_64.exe" and shutil.which(path)):
-                    self.logger.info(f"Found QEMU at: {path}")
-                    return path
+    def _get_VMBOX_path(self) -> str:
+            return "C:\\Program Files\\Oracle\\VirtualBox\\VBoxManage.exe"
+    
+    
     def _load_config_from_env(self, vm_config_file: str = "vm_config.env", 
                              ssh_config_file: str = "ssh_config.env"):
         """Load configuration from environment files."""
@@ -175,27 +169,32 @@ class VMTaskExecutor:
         """
         try:
             self.logger.info("Launching VM directly...")
-            qemu_executable = self._get_qemu_executable()
+            oracle_vm_box = self._get_VMBOX_path()
             memory_mib = int(self.memory_bytes / (1024 * 1024)) # QEMU -m expects MiB
 
-            if not os.path.exists(qemu_executable):
-                self.logger.error(f"QEMU executable not found at: {qemu_executable}")
+            if not os.path.exists(oracle_vm_box):
+                self.logger.error(f"QEMU executable not found at: {oracle_vm_box}")
                 return False
             if not os.path.exists(self.disk_image):
                 self.logger.error(f"Disk image not found at: {self.disk_image}")
                 return False
 
             cmd_list = [
-                qemu_executable,
-                "-m", str(memory_mib),
-                "-smp", str(self.cpus),
-                "-cpu", "qemu64",
-                "-accel", "tcg",
-                "-net", "nic",
-                "-net", f"user,hostfwd=tcp::{self.ssh_port}-:22",
-                "-hda", os.path.abspath(self.disk_image),
-                "-display", "none",
-                "-nographic",
+                oracle_vm_box,
+                "modifyvm", "RunSurge", "--memory", str(memory_mib),
+            ]
+            print(cmd_list)
+            modify_vm_process = subprocess.Popen(
+                cmd_list,
+                shell=False,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+
+            self.logger.info(f"changed memory to {memory_mib} MB")
+
+            cmd_list = [
+                oracle_vm_box,
+                "startvm", "RunSurge", "--type", "headless"
             ]
 
             creation_flags = 0
@@ -207,16 +206,23 @@ class VMTaskExecutor:
                 creation_flags |= subprocess.CREATE_NO_WINDOW # To prevent console window pop-up
 
             print(cmd_list)
-            self.vm_process = subprocess.Popen(
+            start_vm_process = subprocess.Popen(
                 cmd_list,
                 # Use shell=True for Windows compatibility like the batch method
                 shell=False,
                 creationflags=creation_flags,
-                # Don't capture QEMU output - let it run freely
-                stdout=None,
-                stderr=None
+                # Capture stderr to check for errors
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
             )
-            self.logger.info(f"VM process (PID: {self.vm_process.pid}) started directly.")
+            
+            # Check stderr for any errors
+            _, stderr = start_vm_process.communicate()
+            if stderr and "already running" not in stderr.decode().lower():
+                self.logger.error(f"Error starting VM: {stderr.decode()}")
+                return False
+            
+            self.logger.info(f"VM process (PID: {start_vm_process.pid}) started directly.")
             return True
 
         except Exception as e:
@@ -225,15 +231,40 @@ class VMTaskExecutor:
     def _launch_vm_with_batch(self) -> bool:
         """
         Launch VM using startup.bat script with parameters.
+        Legacy approach, not used anymore.
         """
         try:
+            self.logger.info("Launching VM directly...")
+            oracle_vm_box = self._get_VMBOX_path()
+            memory_mib = int(self.memory_bytes / (1024 * 1024)) # QEMU -m expects MiB
+
+            if not os.path.exists(oracle_vm_box):
+                self.logger.error(f"QEMU executable not found at: {oracle_vm_box}")
+                return False
+            if not os.path.exists(self.disk_image):
+                self.logger.error(f"Disk image not found at: {self.disk_image}")
+                return False
+
+            cmd_list = [
+                oracle_vm_box,
+                "modifyvm", "RunSurge", "--memory", str(memory_mib),
+            ]
+            print(cmd_list)
+            modify_vm_process = subprocess.Popen(
+                cmd_list,
+                shell=False,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+
+
+            self.logger.info(f"changed memory to {memory_mib} MB")
             self.logger.info("Launching VM using startup.bat...")
             startup_script = os.path.join(os.path.dirname(__file__), "startup.bat")
             if not os.path.exists(startup_script):
                 self.logger.error("startup.bat not found in the current directory")
                 return False
             
-            cmd = f'"{startup_script}" "{self.memory_bytes / 1024 / 1024}" "{self.cpus}" "{self.ssh_port}" "{self.disk_image}" "{self._get_qemu_executable()}"'          
+            cmd = f'"{startup_script}" "{self.memory_bytes / 1024 / 1024}"  "{self._get_VMBOX_path()}"'          
             try:
                 self.vm_process = subprocess.Popen(
                     cmd,
@@ -250,7 +281,31 @@ class VMTaskExecutor:
         except Exception as e:
             self.logger.error(f"Failed to launch VM with batch file: {e}")
             return False
+    
+    
+    def _setup_vm_with_batch(self) -> bool:
+        try:
+            self.logger.info("Setting up VM using setup.bat...")
+            setup_script = os.path.join(os.path.dirname(__file__), "setup.bat")
+            if not os.path.exists(setup_script):
+                self.logger.error("setup.bat not found in the current directory")
+                return False
+            cmd = f'"{setup_script}" "{self.memory_bytes / 1024 / 1024}"  "{self._get_VMBOX_path()}" "{self.disk_image}"'    
+            setup_process = subprocess.Popen(
+                cmd,
+                shell=True,
+                text=True,
+            )
+            _, stderr = setup_process.communicate()
+            if stderr:
+                self.logger.error(f"Error setting up VM: {stderr.decode()}")
+                return False
             
+            self.logger.info("VM setup completed via setup.bat")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to setup VM with batch file: {e}")
+            return False
     
     def launch_vm(self) -> bool:
         if self.vm_running:
@@ -273,8 +328,12 @@ class VMTaskExecutor:
                 self.logger.error("Failed to setup SMB share")
                 return False
             
-            if not self._launch_vm_directly():
-                self.logger.error("Failed to launch VM using startup.bat")
+            if not self._setup_vm_with_batch():
+                self.logger.error("Failed to setup VM")
+                return False
+            
+            if not self._launch_vm_with_batch():
+                self.logger.error("Failed to launch VM using shell command")
                 return False
             
             self.logger.info("VM process started, waiting for SSH connection...")
@@ -353,7 +412,7 @@ class VMTaskExecutor:
                 self.logger.info("Shared folder already mounted")
                 return True
             
-            mount_cmd = f"mount -t cifs //10.0.2.2/{self.smb_share_name} {self.shared_folder_guest} -o user={self.smb_username},password={self.smb_password},vers=2.0"
+            mount_cmd = f"mount -t cifs //192.168.56.1/{self.smb_share_name} {self.shared_folder_guest} -o user={self.smb_username},password={self.smb_password},vers=2.0"
             output, error = self._execute_command(mount_cmd)
             if error and "already mounted" not in error.lower():
                 self.logger.error(f"Failed to mount SMB share: {error}")
@@ -374,23 +433,29 @@ class VMTaskExecutor:
     
     def stop_vm(self) -> bool:
         try:
-            if self.ssh_client:
-                self.ssh_client.close()
-                self.ssh_client = None
+            self.logger.info("Stopping VM using stop.bat...")
+            startup_script = os.path.join(os.path.dirname(__file__), "stop.bat")
+            if not os.path.exists(startup_script):
+                self.logger.error("stop.bat not found in the current directory")
+                return False
             
-            if self.vm_process:
-                self.vm_process.terminate()
-                self.vm_process.kill()
-                self.vm_process.wait()
-                try:
-                    self.vm_process.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    self.vm_process.kill()
-                    self.vm_process.wait()
-                
-                self.vm_process = None
+            cmd = f'"{startup_script}" "{self._get_VMBOX_path()}"'    
+            stop_process = subprocess.Popen(
+                cmd,
+                shell=True,
+                text=True,
+                stderr=subprocess.PIPE,
+                stdout=subprocess.PIPE
+            )
+            
+            _, stderr = stop_process.communicate()
+
+            if stderr:
+                self.logger.error(f"Error stopping VM: {stderr}")
+                return False
             
             self.vm_running = False
+            
             self.logger.info("VM stopped successfully")
             return True
             
@@ -411,9 +476,6 @@ class VMTaskExecutor:
             "shared_folder_guest": self.shared_folder_guest,
             "shared_folder_mounted": False
         }
-        
-        if self.vm_process:
-            status["vm_process_alive"] = self.vm_process.poll() is None
         
         if self.ssh_client:
             try:
@@ -539,6 +601,7 @@ class VMTaskExecutor:
         try:
             timeout = timeout or self.task_timeout
             ## async command
+            self.logger.info(f"Executing command in VM: {command}")
             stdin, stdout, stderr = self.ssh_client.exec_command(command, timeout=timeout)
             ## sync command
             output = stdout.read().decode('utf-8', errors='ignore')

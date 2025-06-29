@@ -56,7 +56,6 @@ class WorkerManager:
         self.data_cache = CacheManager(config)
         self.master_client = MasterClient(config)
         self.vm_executor = VMTaskExecutor(
-            disk_image=config.disk_image,
             memory_bytes=config.memory_bytes,
             cpus=config.cpu_cores,
             vm_startup_timeout=config.vm_startup_timeout,
