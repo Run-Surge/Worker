@@ -237,7 +237,7 @@ class TaskProcessor:
 
         TODO: Implement actual gRPC streaming to fetch data.
         """
-        self.logger.debug(f"Fetching required data: {required_data_status}")
+        self.logger.info(f"Fetching required data: {required_data_status}")
         try:
             cnt = 0
             while len(required_data_status) != cnt:
@@ -277,7 +277,7 @@ class TaskProcessor:
         
         TODO: invoke VM to execute the python code using the python script path. (it should know data file names, path by itself)
         """
-        self.logger.debug(f"Executing Python code in path {python_script_path}")
+        self.logger.info(f"Executing Python code in path {python_script_path}")
         task_context.start_time = time.time()
         pid = self.vm_executor.execute_script(python_script_path)
        

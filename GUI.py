@@ -12,8 +12,17 @@ import webbrowser
 import requests
 import subprocess
 import signal
+import paramiko
 import sys
+import socket
 from worker_app.config import Config
+from kill import send_kill_signal
+import traceback
+import logging
+
+# Suppress paramiko logging
+logger = logging.getLogger("paramiko")
+logger.setLevel(logging.CRITICAL)
 
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
@@ -126,6 +135,7 @@ class ToolkitApp(ctk.CTk):
     
 
     def try_login(self):
+        
         username = self.username_entry.get()
         password = self.password_entry.get()
         def _login(username: str, password: str) -> bool:
@@ -184,15 +194,26 @@ class ToolkitApp(ctk.CTk):
         # Register validation function
         vcmd = (self.register(self.validate_integer), '%P')
         
+        def on_spinbox_change(value):
+            if value == "":
+                self.memory_size = 0
+                return
+                
+            if self.validate_integer(value):
+                self.memory_size = int(value) * 1024 * 1024 if self.memory_unit == "MB" \
+                    else int(float(value)) * 1024 * 1024 * 1024
+                print(f"Memory size updated to: {self.memory_size} bytes")
+
         self.value_spinbox = ctk.CTkEntry(resource_frame, justify="center", width=100, state="normal", font=self.bold_font, validate='key', validatecommand=vcmd)
         self.value_spinbox.insert(0, "1")
         self.value_spinbox.grid(row=0, column=0, padx=10)
+        self.value_spinbox.bind('<KeyRelease>', lambda event: on_spinbox_change(self.value_spinbox.get()))
+
         def _on_unit_change(value):
             self.memory_unit = value
-            self.memory_size = int(self.value_spinbox.get()) * 1024 * 1024 if self.memory_unit == "MB" \
-              else int(float(self.value_spinbox.get())) * 1024 * 1024 * 1024
-            
-        self.unit_combobox = ctk.CTkComboBox(resource_frame, values=["MB", "GB"], state="normal", width=100, font=self.bold_font,command=_on_unit_change)
+            on_spinbox_change(self.value_spinbox.get())
+
+        self.unit_combobox = ctk.CTkComboBox(resource_frame, values=["MB", "GB"], state="normal", width=100, font=self.bold_font, command=_on_unit_change)
         self.unit_combobox.set("GB")
         self.unit_combobox.grid(row=0, column=1, padx=10)
 
@@ -224,7 +245,56 @@ class ToolkitApp(ctk.CTk):
             threading.Thread(target=self.start_sequence, daemon=True).start()
         else:
             threading.Thread(target=self.stop_sequence, daemon=True).start()
+    def _establish_ssh_connection(self) -> bool:
+        print("Establishing SSH connection...")
+        try:
+            ssh_client = paramiko.SSHClient()
+            ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            ssh_client.connect(
+                "localhost", 
+                port='2222', 
+                username='root', 
+                password='1234',
+                timeout=10,
+                look_for_keys=False,
+                allow_agent=False
+            )
+            print("SSH connection established")
+            ssh_client.close()
+            return True
+        except paramiko.SSHException:
+            print("SSHException occurred, but continuing...")
+            return False
+        except socket.error:
+            print("Socket error occurred, but continuing...")
+            return False
+        except Exception:
+            print("An unexpected error occurred, but continuing...")
+            return False
+        time.sleep(1)
 
+        
+
+    def _wait_for_ssh_connection(self) -> bool:
+        """Wait for SSH connection to become available."""
+        start_time = time.time()
+        while time.time() - start_time < Config.vm_SSH_timeout:
+            try:
+                print("Trying to connect to SSH...")
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(5)
+                result = sock.connect_ex(("localhost", 2222))
+                sock.close()
+                
+                if result == 0:
+                    if self._establish_ssh_connection():
+                        return True                                    
+            except Exception:
+                pass
+            
+            time.sleep(2)
+        
+        return False
 
     def _launch_vm_directly(self) -> bool:
         """
@@ -263,50 +333,84 @@ class ToolkitApp(ctk.CTk):
                 stdout=None,
                 stderr=None
             )
-            self.logger.info(f"VM process (PID: {self.vm_process.pid}) started directly.")
+            print(self.child_process.pid)
+            print(f"VM process (PID: {self.child_process.pid}) started directly.")
             return True
 
         except Exception as e:
-            self.logger.error(f"Failed to launch VM directly: {e}")
+            print(f"Failed to launch VM directly: {e}")
             return False
 
     def _start_vm(self) -> bool:
         try:
             self._launch_vm_directly()
+            self.set_status("Waiting for SSH connection")
+            if not self._wait_for_ssh_connection():
+                raise Exception("Error doing ssh")
+            self.set_status("Active")
             # print('child process pid', self.child_process.pid)
             return True
         except Exception as e:
             print(e)
+            self.set_status("Failed to start VM")
+            self.stop_sequence()
             return False
     
-    def _stop_vm(self) -> bool:        
+    def _wait_for_vm_to_stop(self):
+        """Wait for VM to fully stop by checking its power state"""
+        start_time = time.time()
+        while time.time() - start_time < 30:
+            try:
+                # Check VM state using VBoxManage
+                result = subprocess.run(
+                    ["C:\\Program Files\\Oracle\\VirtualBox\\VBoxManage.exe" , 'showvminfo', 'RunSurge'],
+                    capture_output=True,
+                    text=True
+                )
+                
+                # Look for State line in output
+                for line in result.stdout.splitlines():
+                    if 'State:' in line and 'powered off' in line.lower():
+                        return # VM is stopped
+                        
+                time.sleep(1) # Wait before checking again
+                
+            except Exception as e:
+                print(f"Error checking VM state: {e}")
+                time.sleep(1)
+                
+        raise TimeoutError("VM did not power off within 30 seconds")
+
+    def _stop_vm(self) -> bool:
         try:
-            import psutil
-            current_process = psutil.Process()
-            children = current_process.children(recursive=True)
-            print(f"Children: {children}")
-            for child in children:
-                self.logger.info(f"Terminating process {child.pid}")
-                try:
-                    child.send_signal(signal.SIGTERM)
-                    # child.terminate()  # Try graceful termination first
-                    # child.kill()
-                    # try:
-                    #     # child.wait(timeout=5)  # Wait up to 5 seconds
-                    # except psutil.TimeoutExpired:
-                    #     self.logger.warning(f"Process {child.pid} did not terminate gracefully, forcing kill")
-                    #     child.kill()  # Force kill if process doesn't respond to terminate
-                except psutil.NoSuchProcess:
-                    pass  # Process already terminated
-                except Exception as e:
-                    self.logger.error(f"Error killing process {child.pid}: {e}")
-            # self.child_process.send_signal(signal.SIGTERM)
-            # self.child_process.wait()
-            time.sleep(50)
-            self.child_process = None
+            print("Stopping VM using stop.bat...")
+            startup_script = os.path.join(os.path.dirname(__file__), 'worker_app', 'vm', 'stop.bat')
+            if not os.path.exists(startup_script):
+                print("stop.bat not found in the current directory")
+                return False
+            vbox_path = "C:\\Program Files\\Oracle\\VirtualBox\\VBoxManage.exe"
+            cmd = f'"{startup_script}" "{vbox_path}"'    
+            stop_process = subprocess.Popen(
+                cmd,
+                shell=True,
+                text=True,
+                stderr=subprocess.PIPE,
+                stdout=subprocess.PIPE
+            )
+            
+            _, stderr = stop_process.communicate()
+
+            if stderr:
+                print(f"Error stopping VM: {stderr}")
+                return False
+            
+            self.vm_running = False
+            self._wait_for_vm_to_stop()
+            print("VM stopped successfully")
             return True
+            
         except Exception as e:
-            print(e)
+            print(f"Failed to stop VM: {e}")
             return False
     
     def check_process_status(self):
@@ -333,6 +437,13 @@ class ToolkitApp(ctk.CTk):
         # self.after(2000, self.monitor_process)
     
     def start_sequence(self):
+        if self.memory_size == 0:
+            self.set_status("Failed to start VM, memory size is 0")
+            self.start_button.configure(state="normal", text="Start")
+            self.unit_combobox.configure(state="normal")
+            self.value_spinbox.configure(state="normal")
+            return
+        
         self.set_status("Activating")
         self.value_spinbox.configure(state="disabled")
         self.unit_combobox.configure(state="disabled")
@@ -347,18 +458,32 @@ class ToolkitApp(ctk.CTk):
         self.is_active = True
         self.set_status("Active")
         self.start_button.configure(state="normal", text="Stop")
+        self.is_active = True
+
+    def _send_windows_event(self):
+        send_kill_signal()
+        result = self.child_process.wait(timeout=5)
+        print(f'shutdown {result}')
 
     def stop_sequence(self):
-        self.set_status("Stopping")
-        self.start_button.configure(state="disabled", text="Stopping...")
-        
-        self._stop_vm()
-        
-        self.is_active = False
-        self.set_status("Idle")
-        self.start_button.configure(state="normal", text="Start")
-        self.unit_combobox.configure(state="normal")
-        self.value_spinbox.configure(state="normal")
+        try:
+            self.set_status("Stopping")
+            self.value_spinbox.configure(state="disabled")
+            self.unit_combobox.configure(state="disabled")
+            self.start_button.configure(state="disabled", text="Stopping...")
+            self._send_windows_event()
+            self._stop_vm()
+            self.is_active=False
+            self.set_status("Idle")
+            self.start_button.configure(state="normal", text="Start")
+            self.unit_combobox.configure(state="normal")
+            self.value_spinbox.configure(state="normal")
+        except Exception as e:
+            print(e)
+            self.set_status("Failed to stop VM")
+            self.start_button.configure(state="normal", text="Start")
+            self.unit_combobox.configure(state="normal")
+            self.value_spinbox.configure(state="normal")
 
     def set_status(self, status):
         self.status_label.configure(text=f"Status: {status}")

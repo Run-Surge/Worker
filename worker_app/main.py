@@ -16,6 +16,9 @@ from .core.worker_manager import WorkerManager
 from .grpc_services.worker_servicer import WorkerServicer
 from .utils.logging_setup import setup_logging
 from .core.master_client import MasterClient
+from .utils.constants import SHUTDOWN_EVENT_NAME
+import win32event
+import win32api
 # from .security.interceptor import AuthenticationServerInterceptor
 
 
@@ -152,6 +155,25 @@ def deregister_from_master(config: Config):
     except Exception as e:
         print(f"Failed to deregister from master: {e}")
 
+def _setup_windows_handler():
+    security_attributes = None  # Use default security
+    manual_reset = True
+    initial_state = False
+    try:
+        print(f"Creating windows event {SHUTDOWN_EVENT_NAME}")
+        shutdown_event = win32event.CreateEvent(
+            security_attributes,
+            manual_reset,
+            initial_state,
+            SHUTDOWN_EVENT_NAME
+        )
+    except Exception as e:
+        print(f"Error creating event: {e}")
+        # This might happen if the event already exists with different permissions
+        # For this example, we'll just exit.
+        return None
+
+    return shutdown_event
 
 def setup_signal_handlers(server: grpc.Server, worker_manager: WorkerManager, config: Config):
     """Set up signal handlers for graceful shutdown."""
@@ -173,6 +195,7 @@ def setup_signal_handlers(server: grpc.Server, worker_manager: WorkerManager, co
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
+    # signal.signal(signal.CTRL_C_EVENT, signal_handler)
 
 
 async def register_with_master(config: Config):
@@ -189,7 +212,33 @@ async def register_with_master(config: Config):
         print(f"Closing worker...")
         os._exit(1)
 
-
+def wait_for_shutdown(shutdown_event):
+    print("[Executor Thread] Now blocking and waiting for the event...")
+    win32event.WaitForSingleObject(shutdown_event, win32event.INFINITE)
+    print("[Executor Thread] Event was signaled!")
+            
+            
+async def shutdown_listener(shutdown_event, loop, server: grpc.Server, worker_manager: WorkerManager, config: Config):
+    """An asyncio-friendly coroutine that waits for the shutdown signal."""
+    await loop.run_in_executor(
+        None,  # Use the default thread pool executor
+        wait_for_shutdown,
+        shutdown_event
+    )
+    
+    print("\nShutdown signal received by asyncio loop!")
+    print(f"\nReceived windows signal, starting graceful shutdown...")
+        
+        # This is a hack to stop wait for the server to stop, without using await because handler shouldn't be async
+    asyncio.run_coroutine_threadsafe(server.stop(grace=1), loop)  # 30 second grace period
+    thread = threading.Thread(target=deregister_from_master, args=(config,))
+    thread.start()
+    thread.join()
+    # Shutdown worker manager
+    worker_manager.shutdown()
+    await asyncio.sleep(2)
+    print("Shutdown complete")
+    os._exit(0)
 
 
 async def main():
@@ -203,7 +252,6 @@ async def main():
         
         # Set up logging
         
-        await register_with_master(config)
 
         # Set up logging
         logger = setup_logging("main", config.log_level)
@@ -227,10 +275,13 @@ async def main():
         
         # Set up signal handlers for graceful shutdown
         setup_signal_handlers(server, worker_manager, config)
-        
+        shutdown_event = _setup_windows_handler()
+        loop = asyncio.get_running_loop()
+        loop.create_task(shutdown_listener(shutdown_event, loop, server, worker_manager, config))
         # Start the server
         await server.start()
         
+        await register_with_master(config)
 
         logger.info(f"Worker {config.worker_id} is running and ready to accept tasks")
         logger.info(f"Listening on port {config.listen_port}")

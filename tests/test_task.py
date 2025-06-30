@@ -19,14 +19,14 @@ def create_data_notification(task_id: int, data_id: int):
 
 def create_task_assignment():
     return TaskAssignment(
-        task_id=50,
+        task_id=5000000,
         python_file=b"""
-print("Manga")
+print("Manga"
     """,
         python_file_name="test.py",
         required_data_ids=[
-            1,
-            2
+            # 1,
+            # 2
         ],
         job_id=1,
         output_data_infos=[
@@ -44,7 +44,7 @@ def create_node_stub(address: str):
 def test_task_assignment():
     task_assignment = create_task_assignment()
     print(task_assignment)
-    stub = create_node_stub('localhost:50051')
+    stub = create_node_stub('localhost:50000')
     response = stub.AssignTask(task_assignment)
     print(response)
     

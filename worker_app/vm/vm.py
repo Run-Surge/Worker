@@ -12,7 +12,7 @@ import psutil
 import ctypes
 import traceback
 from ..utils.logging_setup import setup_logging
-
+from ..config import Config
 class VMTaskExecutor:    
     def __init__(self, 
                  disk_image: str = os.path.join(os.path.dirname(__file__), "AlpineVM.vdi"),
@@ -434,6 +434,10 @@ class VMTaskExecutor:
     def stop_vm(self) -> bool:
         try:
             self.logger.info("Stopping VM using stop.bat...")
+            if not Config.start_vm_on_startup:
+                self.logger.info("I don't own the VM, skipping stop...")
+                return True
+            
             startup_script = os.path.join(os.path.dirname(__file__), "stop.bat")
             if not os.path.exists(startup_script):
                 self.logger.error("stop.bat not found in the current directory")

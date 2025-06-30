@@ -7,4 +7,5 @@ from worker_app.main import main
 import asyncio
 
 if __name__ == "__main__":
+    print('my pid', os.getpid())
     asyncio.run(main())

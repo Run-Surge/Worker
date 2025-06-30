@@ -362,6 +362,8 @@ class WorkerManager:
                 pass  # Process already terminated
             except Exception as e:
                 self.logger.error(f"Error killing process {child.pid}: {e}")
+
+        
         # TODO: Wait for active tasks to complete or terminate them
         # TODO: Cleanup resources
         # TODO: Notify master of shutdown
