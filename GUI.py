@@ -163,7 +163,7 @@ class ToolkitApp(ctk.CTk):
             self.login_error_label.configure(text="Username or password is incorrect.")
 
     def open_signup_page(self):
-        webbrowser.open("https://google.com/")
+        webbrowser.open(f"http://{Config.master_ip_address}:3000/register")
 
     def setup_main_ui(self):
         self.logo_label = ctk.CTkLabel(self, text="")
